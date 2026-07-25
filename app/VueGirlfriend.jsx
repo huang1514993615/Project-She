@@ -115,9 +115,9 @@ const CompanionApp = Vue.extend({
       </div>
 
       <nav class="mobile-nav" aria-label="移动端导航">
-        <button :class="{ active: mobileTab === 'profile' }" @click="mobileTab = 'profile'"><span>◐</span>她</button>
-        <button :class="{ active: mobileTab === 'chat' }" @click="mobileTab = 'chat'"><span>◌</span>对话</button>
-        <button :class="{ active: mobileTab === 'tasks' }" @click="mobileTab = 'tasks'"><span>✓</span>我们</button>
+        <button :class="{ active: mobileTab === 'profile' }" @click="switchMobileTab('profile')"><span>◐</span>晚晚</button>
+        <button :class="{ active: mobileTab === 'chat' }" @click="switchMobileTab('chat')"><span class="chat-nav-dot">●</span>聊天</button>
+        <button :class="{ active: mobileTab === 'tasks' }" @click="switchMobileTab('tasks')"><span>✓</span>日常</button>
       </nav>
 
       <transition name="fade">
@@ -231,6 +231,10 @@ const CompanionApp = Vue.extend({
     quickSend(text) {
       this.draft = text;
       this.sendMessage();
+    },
+    switchMobileTab(tab) {
+      this.mobileTab = tab;
+      if (tab === "chat") this.scrollBottom();
     },
     async sendMessage() {
       const content = this.draft.trim();

@@ -1,5 +1,12 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#171925",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://night-mailbox.example"),
@@ -8,6 +15,16 @@ export const metadata: Metadata = {
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "夜航信箱",
+  },
+  formatDetection: {
+    telephone: false,
   },
   openGraph: {
     title: "夜航信箱｜有人在听，也有人在乎",
