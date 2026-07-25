@@ -54,6 +54,7 @@ const CompanionApp = Vue.extend({
               <h2>{{ profile.name }}</h2>
               <p>{{ apiMode === 'live' ? 'DeepSeek 已连接' : '演示陪伴模式' }} · 正在听你说</p>
             </div>
+            <button class="history-clear" @click="clearConversation" aria-label="清空本地聊天记录">清空记录</button>
             <span class="adult-badge">18+ 成年角色</span>
           </div>
 
@@ -81,7 +82,7 @@ const CompanionApp = Vue.extend({
             <textarea v-model="draft" @keydown.enter.exact.prevent="sendMessage" rows="1" maxlength="500" placeholder="把想说的话留在这里…" aria-label="聊天内容"></textarea>
             <button type="submit" class="send" :disabled="sending || !draft.trim()" aria-label="发送消息">↑</button>
           </form>
-          <p class="ai-note">AI 生成内容仅供陪伴参考 · 真实生活同样值得被拥抱</p>
+          <p class="ai-note">对话仅保存在本机 · AI 生成内容仅供陪伴参考</p>
         </main>
 
         <aside class="task-panel" :class="{ 'mobile-active': mobileTab === 'tasks' }">
@@ -205,6 +206,22 @@ const CompanionApp = Vue.extend({
           ? { ...task, title: "认真说一句晚安", detail: "用一句话结束今天的故事", icon: "☾" }
           : task);
       }
+      if (Array.isArray(saved?.messages)) {
+        const restoredMessages = saved.messages
+          .filter((message) =>
+            (message?.role === "user" || message?.role === "assistant")
+            && typeof message?.content === "string"
+            && message.content.trim()
+          )
+          .slice(-120)
+          .map((message, index) => ({
+            id: Number.isFinite(message.id) ? message.id : Date.now() + index,
+            role: message.role,
+            content: message.content,
+            time: typeof message.time === "string" ? message.time : "",
+          }));
+        if (restoredMessages.length) this.messages = restoredMessages;
+      }
     } catch {}
     fetch("/api/health").then((response) => response.json()).then((data) => {
       this.apiMode = data.chat === "configured" ? "live" : "demo";
@@ -216,7 +233,19 @@ const CompanionApp = Vue.extend({
       return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
     },
     persist() {
-      localStorage.setItem("night-mailbox-state", JSON.stringify({ profile: this.profile, tasks: this.tasks }));
+      const messages = this.messages
+        .filter((message) => !message.typing && typeof message.content === "string" && message.content.trim())
+        .slice(-120)
+        .map(({ id, role, content, time }) => ({ id, role, content, time }));
+      try {
+        localStorage.setItem("night-mailbox-state", JSON.stringify({
+          profile: this.profile,
+          tasks: this.tasks,
+          messages,
+        }));
+      } catch {
+        this.showToast("本机存储空间不足，较早的记录未保存");
+      }
     },
     showToast(text) {
       this.toast = text;
@@ -274,8 +303,21 @@ const CompanionApp = Vue.extend({
         reply.content = "刚刚的信号有一点远，不过我没有走开。你愿意再说一次吗？";
       } finally {
         this.sending = false;
+        this.persist();
         this.scrollBottom();
       }
+    },
+    clearConversation() {
+      if (!window.confirm("确认清空这台设备上的全部聊天记录吗？")) return;
+      this.messages = [{
+        id: Date.now(),
+        role: "assistant",
+        content: "【场景】客厅里只留着一盏暖黄色的灯，窗外的雨声轻轻落在玻璃上。\n\n【心情】我重新整理好靠枕，带着一点期待看向你。\n\n【动作】我拍了拍身边的位置，把温热的杯子往你这边推了推。\n\n【对话】记录已经清空啦，老公。我们想从今晚的哪一刻重新开始？\n\n【剧情推进】我在沙发边为你留出位置，等你坐下来讲第一句话。",
+        time: this.now(),
+      }];
+      this.persist();
+      this.scrollBottom();
+      this.showToast("本机聊天记录已清空");
     },
     toggleTask(task) {
       task.done = !task.done;

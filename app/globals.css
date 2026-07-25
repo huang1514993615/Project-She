@@ -402,7 +402,6 @@ select:focus-visible {
 }
 
 .adult-badge {
-  margin-left: auto;
   padding: 7px 10px;
   color: var(--coral);
   background: var(--coral-soft);
@@ -410,6 +409,22 @@ select:focus-visible {
   border-radius: 999px;
   font-size: 9px;
   letter-spacing: 0.06em;
+}
+
+.history-clear {
+  margin-left: auto;
+  padding: 7px 10px;
+  color: #8b888e;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.history-clear:hover {
+  color: var(--coral);
+  border-color: rgba(236, 114, 93, 0.38);
 }
 
 .date-divider {
@@ -1145,6 +1160,7 @@ select:focus-visible {
   .chat-panel {
     height: 100%;
     min-height: 0;
+    padding-bottom: calc(62px + env(safe-area-inset-bottom));
   }
 
   .chat-panel.mobile-hidden {
@@ -1292,6 +1308,11 @@ select:focus-visible {
   }
 
   .adult-badge {
+    padding: 6px 8px;
+    font-size: 8px;
+  }
+
+  .history-clear {
     padding: 6px 8px;
     font-size: 8px;
   }
