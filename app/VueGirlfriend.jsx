@@ -137,7 +137,7 @@ const CompanionApp = Vue.extend({
               </button>
             </div>
             <label class="field-label">相处关系
-              <select v-model="profile.relation"><option>成年恋人</option><option>默契搭子</option><option>知心朋友</option><option>成长伙伴</option></select>
+              <select v-model="profile.relation"><option>妻子</option><option>成年恋人</option><option>默契搭子</option><option>知心朋友</option></select>
             </label>
             <button class="save-profile" @click="saveProfile">保存设定，继续聊天</button>
             <p class="boundary-note">成人模式允许暧昧、撒娇与亲密互动，但不涉及未成年人、强迫或高风险行为。</p>
@@ -162,7 +162,7 @@ const CompanionApp = Vue.extend({
         name: "晚晚",
         age: 24,
         personality: "娇小可爱",
-        relation: "成年恋人",
+        relation: "妻子",
       },
       personalities: [
         { name: "娇小可爱", icon: "♡", copy: "软萌俏皮" },
@@ -172,7 +172,7 @@ const CompanionApp = Vue.extend({
       ],
       suggestions: ["今天有点累", "陪我聊五分钟", "想听你讲个故事"],
       messages: [
-        { id: 1, role: "assistant", content: "【场景：家中客厅 · 雨夜】\n（晚晚抱着靠枕坐在沙发上，听见门响便抬起脸，笑着朝你招了招手。）\n\n晚上好呀。你比平时晚了一点，是今天有很多事要忙吗？", time: "22:08" },
+        { id: 1, role: "assistant", content: "【场景：家中客厅 · 雨夜】\n（晚晚抱着靠枕坐在沙发上，听见门响便抬起脸，笑着朝你招了招手。）\n\n回来啦，老公。你比平时晚了一点，是今天有很多事要忙吗？", time: "22:08" },
         { id: 2, role: "user", content: "刚忙完，回来的路上下雨了。", time: "22:09" },
         { id: 3, role: "assistant", content: "【场景：家中客厅 · 窗外下着雨】\n（晚晚踩着柔软的拖鞋走近，接过你微湿的外套挂好，又把温热的杯子轻轻推到你手边。）\n\n那一定有点凉。先喝口热的吧。你愿意的话，可以把今天最累的那一小段交给我。", time: "22:09" },
       ],
@@ -199,6 +199,7 @@ const CompanionApp = Vue.extend({
     try {
       const saved = JSON.parse(localStorage.getItem("night-mailbox-state") || "null");
       if (saved?.profile) this.profile = { ...this.profile, ...saved.profile };
+      if (this.profile.relation === "成年恋人") this.profile.relation = "妻子";
       if (saved?.tasks) {
         this.tasks = saved.tasks.map((task) => task.id === 4
           ? { ...task, title: "认真说一句晚安", detail: "用一句话结束今天的故事", icon: "☾" }
