@@ -54,9 +54,7 @@ const CompanionApp = Vue.extend({
               <h2>{{ profile.name }}</h2>
               <p>{{ apiMode === 'live' ? 'DeepSeek 已连接' : '演示陪伴模式' }} · 正在听你说</p>
             </div>
-            <button class="scene-button" @click="generateScene" :disabled="generating">
-              <span>{{ generating ? '◌' : '▧' }}</span>{{ generating ? '正在想象…' : '生成此刻' }}
-            </button>
+            <span class="adult-badge">18+ 成年角色</span>
           </div>
 
           <div class="date-divider"><span>今天</span></div>
@@ -73,13 +71,6 @@ const CompanionApp = Vue.extend({
               </div>
             </article>
 
-            <article v-if="memoryImage" class="memory-card">
-              <img :src="memoryImage.url" :alt="memoryImage.caption" />
-              <div class="memory-caption">
-                <span>我们的此刻 · AI 场景记忆</span>
-                <p>{{ memoryImage.caption }}</p>
-              </div>
-            </article>
           </section>
 
           <div class="suggestions">
@@ -87,7 +78,6 @@ const CompanionApp = Vue.extend({
           </div>
 
           <form class="composer" @submit.prevent="sendMessage">
-            <button type="button" class="attach" @click="generateScene" aria-label="生成场景图片">＋</button>
             <textarea v-model="draft" @keydown.enter.exact.prevent="sendMessage" rows="1" maxlength="500" placeholder="把想说的话留在这里…" aria-label="聊天内容"></textarea>
             <button type="submit" class="send" :disabled="sending || !draft.trim()" aria-label="发送消息">↑</button>
           </form>
@@ -109,11 +99,11 @@ const CompanionApp = Vue.extend({
             </button>
           </section>
 
-          <section class="memory-preview">
-            <div class="section-label"><span>本周记忆</span><button @click="generateScene">再生成一张</button></div>
-            <div class="memory-photo">
-              <img :src="memoryImage ? memoryImage.url : '/og.png'" alt="本周共同记忆" />
-              <span>{{ memoryImage ? '刚刚 · 我们的此刻' : '星期五 · 雨夜来信' }}</span>
+          <section class="scene-preview">
+            <div class="section-label"><span>对话场景</span><em>TEXT ONLY</em></div>
+            <div class="scene-copy">
+              <span>⌂</span>
+              <div><b>家中 · 夜晚</b><p>她会在每次回复中描述所在空间、表情和动作，让对话像正在发生。</p></div>
             </div>
           </section>
 
@@ -136,7 +126,7 @@ const CompanionApp = Vue.extend({
             <button class="modal-close" @click="settingsOpen = false" aria-label="关闭">×</button>
             <div class="eyebrow">CUSTOMIZE HER</div>
             <h2 id="settings-title">她会以怎样的方式陪你？</h2>
-            <p class="settings-intro">这些设定会写入每次对话，让回应更像你熟悉的她。</p>
+            <p class="settings-intro">这些设定会写入每次对话。角色始终明确为成年人，并会自然描写场景、表情与动作。</p>
 
             <label class="field-label">名字<input v-model.trim="profile.name" maxlength="8" /></label>
             <label class="field-label">年龄 <b>{{ profile.age }} 岁</b><input v-model.number="profile.age" type="range" min="18" max="40" /></label>
@@ -147,10 +137,10 @@ const CompanionApp = Vue.extend({
               </button>
             </div>
             <label class="field-label">相处关系
-              <select v-model="profile.relation"><option>默契搭子</option><option>温柔恋人</option><option>知心朋友</option><option>成长伙伴</option></select>
+              <select v-model="profile.relation"><option>成年恋人</option><option>默契搭子</option><option>知心朋友</option><option>成长伙伴</option></select>
             </label>
             <button class="save-profile" @click="saveProfile">保存设定，继续聊天</button>
-            <p class="boundary-note">角色年龄固定为成年人。AI 会尊重边界，不鼓励情感依赖，也不会替代现实中的专业帮助。</p>
+            <p class="boundary-note">成人模式允许暧昧、撒娇与亲密互动，但不涉及未成年人、强迫或高风险行为。</p>
           </section>
         </div>
       </transition>
@@ -163,7 +153,6 @@ const CompanionApp = Vue.extend({
       mobileTab: "chat",
       settingsOpen: false,
       sending: false,
-      generating: false,
       draft: "",
       toast: "",
       toastTimer: null,
@@ -172,28 +161,27 @@ const CompanionApp = Vue.extend({
       profile: {
         name: "晚晚",
         age: 24,
-        personality: "温柔",
-        relation: "默契搭子",
+        personality: "娇小可爱",
+        relation: "成年恋人",
       },
       personalities: [
-        { name: "温柔", icon: "☁", copy: "细腻回应" },
+        { name: "娇小可爱", icon: "♡", copy: "软萌俏皮" },
         { name: "俏皮", icon: "✦", copy: "轻松有趣" },
         { name: "理性", icon: "◇", copy: "清醒可靠" },
         { name: "治愈", icon: "☾", copy: "安静倾听" },
       ],
       suggestions: ["今天有点累", "陪我聊五分钟", "想听你讲个故事"],
       messages: [
-        { id: 1, role: "assistant", content: "晚上好呀。你比平时晚了一点，是今天有很多事要忙吗？", time: "22:08" },
+        { id: 1, role: "assistant", content: "【场景：家中客厅 · 雨夜】\n（晚晚抱着靠枕坐在沙发上，听见门响便抬起脸，笑着朝你招了招手。）\n\n晚上好呀。你比平时晚了一点，是今天有很多事要忙吗？", time: "22:08" },
         { id: 2, role: "user", content: "刚忙完，回来的路上下雨了。", time: "22:09" },
-        { id: 3, role: "assistant", content: "那一定有点凉。先把外套挂好，喝口热的吧。你愿意的话，可以把今天最累的那一小段交给我。", time: "22:09" },
+        { id: 3, role: "assistant", content: "【场景：家中客厅 · 窗外下着雨】\n（晚晚踩着柔软的拖鞋走近，接过你微湿的外套挂好，又把温热的杯子轻轻推到你手边。）\n\n那一定有点凉。先喝口热的吧。你愿意的话，可以把今天最累的那一小段交给我。", time: "22:09" },
       ],
       tasks: [
         { id: 1, title: "互道一声早安", detail: "完成今天的第一次问候", points: 10, icon: "☀", done: true },
         { id: 2, title: "分享此刻心情", detail: "用一句话告诉她今天怎样", points: 15, icon: "♡", done: false },
         { id: 3, title: "走一段放松的路", detail: "离开屏幕，散步 10 分钟", points: 20, icon: "↝", done: false },
-        { id: 4, title: "生成共同记忆", detail: "把一段对话变成场景图片", points: 25, icon: "▧", done: false },
+        { id: 4, title: "认真说一句晚安", detail: "用一句话结束今天的故事", points: 25, icon: "☾", done: false },
       ],
-      memoryImage: null,
     };
   },
   computed: {
@@ -211,7 +199,11 @@ const CompanionApp = Vue.extend({
     try {
       const saved = JSON.parse(localStorage.getItem("night-mailbox-state") || "null");
       if (saved?.profile) this.profile = { ...this.profile, ...saved.profile };
-      if (saved?.tasks) this.tasks = saved.tasks;
+      if (saved?.tasks) {
+        this.tasks = saved.tasks.map((task) => task.id === 4
+          ? { ...task, title: "认真说一句晚安", detail: "用一句话结束今天的故事", icon: "☾" }
+          : task);
+      }
     } catch {}
     fetch("/api/health").then((response) => response.json()).then((data) => {
       this.apiMode = data.chat === "configured" ? "live" : "demo";
@@ -278,31 +270,6 @@ const CompanionApp = Vue.extend({
       } finally {
         this.sending = false;
         this.scrollBottom();
-      }
-    },
-    async generateScene() {
-      if (this.generating) return;
-      this.generating = true;
-      this.showToast("正在把对话变成一帧记忆…");
-      const recent = this.messages.slice(-6).map((item) => `${item.role === "user" ? "我" : this.profile.name}：${item.content}`).join("\n");
-      try {
-        const response = await fetch("/api/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: this.profile, conversation: recent }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
-        this.memoryImage = { url: data.imageUrl, caption: data.caption || "把这一刻，好好收进信箱里。" };
-        const task = this.tasks.find((item) => item.id === 4);
-        if (task) task.done = true;
-        this.persist();
-        this.showToast(data.demo ? "已生成演示记忆 · 配置图片接口后可实时出图" : "这一刻已经收进记忆");
-        this.scrollBottom();
-      } catch {
-        this.showToast("图片没有寄到，再试一次吧");
-      } finally {
-        this.generating = false;
       }
     },
     toggleTask(task) {

@@ -221,7 +221,7 @@ select:focus-visible {
 .mood-card,
 .facts-card,
 .day-card,
-.memory-preview,
+.scene-preview,
 .streak-card {
   margin-top: 18px;
   padding: 19px;
@@ -398,6 +398,17 @@ select:focus-visible {
 
 .scene-button:disabled {
   opacity: 0.55;
+}
+
+.adult-badge {
+  margin-left: auto;
+  padding: 7px 10px;
+  color: var(--coral);
+  background: var(--coral-soft);
+  border: 1px solid rgba(236, 114, 93, 0.25);
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
 }
 
 .date-divider {
@@ -756,6 +767,37 @@ select:focus-visible {
   background: #8ca892;
 }
 
+.scene-copy {
+  margin-top: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.scene-copy > span {
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--coral);
+  background: var(--coral-soft);
+  border-radius: 11px;
+}
+
+.scene-copy b {
+  display: block;
+  font-family: "Songti SC", "SimSun", serif;
+  font-size: 13px;
+}
+
+.scene-copy p {
+  margin: 5px 0 0;
+  color: #8b888e;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
 .memory-photo {
   position: relative;
   margin-top: 13px;
@@ -1093,7 +1135,7 @@ select:focus-visible {
   }
 
   .day-card,
-  .memory-preview,
+  .scene-preview,
   .streak-card {
     margin: 0;
   }
@@ -1203,7 +1245,7 @@ select:focus-visible {
   }
 
   .day-card,
-  .memory-preview,
+  .scene-preview,
   .streak-card {
     margin-top: 14px;
   }
