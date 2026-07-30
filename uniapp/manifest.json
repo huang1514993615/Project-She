@@ -1,0 +1,46 @@
+{
+    "name" : "夜航信箱",
+    "appid" : "__UNI__55DC969",
+    "description" : "本地保存的多人 AI 陪伴与互动剧情 App",
+    "versionName" : "0.1.0",
+    "versionCode" : "100",
+    "transformPx" : false,
+    "app-plus" : {
+        "usingComponents" : true,
+        "nvueStyleCompiler" : "uni-app",
+        "compilerVersion" : 3,
+        "splashscreen" : {
+            "alwaysShowBeforeRender" : true,
+            "waiting" : true,
+            "autoclose" : true,
+            "delay" : 0
+        },
+        "modules" : {
+            "Downloader" : {},
+            "NativeObj" : {}
+        },
+        "distribute" : {
+            "android" : {
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>"
+                ],
+                "usesCleartextTraffic" : true,
+                "minSdkVersion" : 23,
+                "targetSdkVersion" : 35
+            },
+            "ios" : {
+                "dSYMs" : false
+            }
+        }
+    },
+    "quickapp" : {},
+    "mp-weixin" : {
+        "appid" : "",
+        "setting" : {
+            "urlCheck" : false
+        },
+        "usingComponents" : true
+    },
+    "vueVersion" : "2"
+}

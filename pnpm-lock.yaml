@@ -20,6 +20,9 @@ importers:
       react-dom:
         specifier: 19.2.6
         version: 19.2.6(react@19.2.6)
+      undici:
+        specifier: 7.24.8
+        version: 7.24.8
       vue:
         specifier: 2.7.16
         version: 2.7.16

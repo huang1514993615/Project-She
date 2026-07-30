@@ -1,0 +1,21 @@
+{
+  "name": "@project-she/character-motion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A zero-dependency layered character motion engine for plain HTML.",
+  "main": "./dist/character-motion.iife.js",
+  "module": "./dist/character-motion.esm.js",
+  "exports": {
+    ".": {
+      "import": "./dist/character-motion.esm.js",
+      "default": "./dist/character-motion.iife.js"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check src/character-motion.js && node --check src/image-processing.js && node --check demo/demo.js && node --check studio/studio.js && node --check server/studio-store.mjs && node --check server/studio-image-jobs.mjs && node --check scripts/serve.mjs"
+  }
+}

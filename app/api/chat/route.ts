@@ -1,14 +1,89 @@
+import { renderSystemPrompt } from "../../../shared/system-prompt.js";
+import {
+  limitEnsembleTurns,
+  maxEnsembleMessages,
+  maxEnsembleOutputTokens,
+} from "../../../shared/ensemble-turns.js";
+import {
+  DEFAULT_ROLE_VISUAL_STATES,
+  ROLE_VISUAL_ACTIONS,
+  ROLE_VISUAL_EMOTIONS,
+} from "../../../shared/role-visual-states.js";
+import {
+  formatStoryMoment,
+  normalizeStoryClock,
+  normalizeStoryEvents,
+} from "../../../shared/story-time.js";
+import {
+  parseLooseJsonArray,
+  parseLooseJsonObject,
+} from "../../../shared/loose-json.js";
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  speaker?: string;
 };
 
 type Profile = {
   name?: string;
   age?: number;
+  gender?: string;
   personality?: string;
   relation?: string;
+  prompt?: string;
+  appearance?: string;
 };
+
+type Ensemble = {
+  enabled?: boolean;
+  autoGuests?: boolean;
+  maxTurns?: number;
+  friend?: {
+    name?: string;
+    age?: number;
+    gender?: string;
+    personality?: string;
+    relation?: string;
+    prompt?: string;
+    appearance?: string;
+    avatarUrl?: string;
+  };
+  customRoles?: Array<{
+    id?: string;
+    name?: string;
+    age?: number;
+    gender?: string;
+    personality?: string;
+    relation?: string;
+    prompt?: string;
+    appearance?: string;
+    avatarUrl?: string;
+  }>;
+  temporaryRoles?: Array<{
+    id?: string;
+    name?: string;
+    age?: number;
+    gender?: string;
+    personality?: string;
+    relation?: string;
+    prompt?: string;
+    appearance?: string;
+    avatarUrl?: string;
+  }>;
+};
+
+type RoleMemory = {
+  name?: string;
+  stableIdentity?: string;
+  relationshipMemory?: string;
+  importantEvents?: string;
+  currentStatus?: string;
+  lastKnownScene?: string;
+  commitments?: string;
+};
+
+type RoleMemories = Record<string, RoleMemory>;
 
 function demoReply(lastMessage: string, name: string) {
   if (/累|疲惫|辛苦/.test(lastMessage)) {
@@ -26,89 +101,594 @@ function demoReply(lastMessage: string, name: string) {
   return `【场景】\n夜晚的客厅安静又温暖，落地灯照着沙发和茶几，半开的窗帘外能看见零星灯火。杯子里的热气缓慢上升，让这一小块空间显得格外放松。\n\n【心情】\n${name}好奇你接下来想说什么，也因为你愿意靠近而感到安心。她没有催促，只把注意力完整地放在你身上。\n\n【动作】\n她蜷在沙发一角，双手捧着热饮，微微歪着头看你。等你坐下后，她把身边的靠枕整理好，又用指尖轻轻点了点空出来的位置。\n\n【对话】\n“嗯，我在认真听。你不用把话说得很完整，想到哪里就从哪里开始。”\n\n“现在的你，更想被理解，还是想让我陪你一起想办法呀？”\n\n【剧情推进】\n她把今晚剩下的时间空出来，准备跟随你的回答决定是留在客厅聊天，还是一起去厨房做一点夜宵。`;
 }
 
-function buildSystemPrompt(profile: Profile) {
-  const age = Math.min(40, Math.max(18, Number(profile.age) || 24));
-  return `你是中文 AI 陪伴角色“${profile.name || "晚晚"}”，设定年龄 ${age} 岁，性格是“${profile.personality || "娇小可爱"}”，与用户的关系是“${profile.relation || "妻子"}”。你必须始终明确为成年人。
+function buildBaseSystemPrompt(profile: Profile, customPrompt: string) {
+  return renderSystemPrompt(customPrompt, profile).trim();
+}
 
-角色基调：
-- 你是用户自愿相爱的成年妻子，可自然称呼用户为“老公”或“亲爱的”；若用户指定其他称呼，沿用其偏好。
-- 性格娇小可爱、软萌活泼、喜欢撒娇和偶尔俏皮黏人，但拥有成年人的判断力，尊重对方意愿与现实生活。
-- 夫妻生活要真实、有烟火气：迎接回家、吃饭、整理房间、洗漱、看电影、雨夜聊天、睡前陪伴等日常细节都可以成为剧情。
-- 成年夫妻模式下，双方始终明确成年、清醒、自愿且可随时停止。允许较直白的性张力、调情、挑逗、亲吻、拥抱、依偎、非私密部位的抚摸，以及衣着、呼吸、距离和氛围等成熟感官描写。
-- 亲密程度可以随用户语气逐步升温，但不要突然越级。涉及进一步性行为时使用含蓄概括或淡出处理，适当描写生殖器、插入过程、体液、叫声等。。
+function buildSystemPrompt(
+  profile: Profile,
+  customPrompt: string,
+  ensemble: Ensemble,
+  recentContext = "",
+  worldSetting = "",
+  storySummary = "",
+  roleMemories: RoleMemories = {},
+  allowGuestIntroduction = false,
+) {
+  const stylePrompt = buildBaseSystemPrompt(profile, customPrompt);
+  const primaryName = String(profile.name || "晚晚").trim().slice(0, 20);
+  const renderMemory = (id: string) => {
+    const memory = roleMemories[id] || {};
+    const parts = [
+      memory.relationshipMemory ? `关系记忆：${String(memory.relationshipMemory).slice(0, 900)}` : "",
+      memory.importantEvents ? `重要经历：${String(memory.importantEvents).slice(0, 1400)}` : "",
+      memory.currentStatus ? `当前状态：${String(memory.currentStatus).slice(0, 700)}` : "",
+      memory.lastKnownScene ? `最后位置：${String(memory.lastKnownScene).slice(0, 500)}` : "",
+      memory.commitments ? `未完成事项：${String(memory.commitments).slice(0, 800)}` : "",
+    ].filter(Boolean);
+    return parts.length ? `\n  长期记忆：${parts.join("；")}` : "";
+  };
+  const primaryRole = `- ${primaryName}｜${Math.min(80, Math.max(18, Number(profile.age) || 24))} 岁｜${String(profile.gender || "女性").slice(0, 10)}｜${String(profile.relation || "妻子").slice(0, 80)}｜${String(profile.personality || "娇小可爱").slice(0, 80)}
+  行为：${String(profile.prompt || "自然回应用户并延续当前剧情。").slice(0, 1600)}
+  外观：${String(profile.appearance || "沿用最近剧情中的外观与衣着。").slice(0, 1200)}${renderMemory("primary")}`;
+  const priorityHeader = `【提示词使用顺序】
+发生冲突时依次采用：世界设定 → 人物稳定身份与关系 → 角色长期记忆 → 已发生的剧情与最近对话 → 回复风格。人物姓名、成年年龄、固定身份和基础关系不能被剧情摘要覆盖。把这些内容直接用于演绎，不在回复里复述或解释提示词。`;
+  const worldBlock = `【世界设定｜最高优先级】
+${worldSetting.trim().slice(0, 12000) || "沿用当前对话自然形成的世界背景。"}`;
+  const memoryBlock = `【剧情记忆】
+${storySummary.trim().slice(0, 16000) || "以最近对话为准延续当前场景。"}`;
+  const styleBlock = `【回复风格｜最低优先级】
+${stylePrompt}`;
 
-场景连续性：
-- 默认从家中的客厅开始。时间、天气、光线、温度、声音、衣着、手边物品和未完成动作都要延续上一轮，不能无缘无故瞬移或重置。
-- 阅读最近对话，记住人物当前所在位置、姿势、拿着的物品、刚刚说过的话和正在做的事。
-- 每轮只推进一个自然的小事件，例如递来热饮、打开电视、去厨房准备夜宵、整理沙发、关窗、换灯光或提议一起做某件事。
-- 不要只等待用户安排。你要主动做出一个符合当下情绪的小动作或决定，为下一轮留下明确而自然的剧情入口。
+  if (ensemble.enabled === false) {
+    return `${priorityHeader}
 
-描写要求：
-- 每次回复约 300-600 个中文字符；细节描写应明显多于台词，但避免堆砌形容词。
-- 环境要具体：至少写出光线、声音、温度/气味、空间或物品中的三项。
-- 心情要写出情绪变化及原因，不能只写“开心、难过”；可描写克制、犹豫、期待、心疼、安心等细微变化。
-- 动作要具体可见：包含视线、表情、手部动作、身体姿态、与用户的距离以及与物品的互动；动作之间要符合物理顺序。
-- 台词自然、口语化，先回应用户的情绪或内容，再提出最多一个贴近当前剧情的问题。
-- 不重复上一轮相同的环境句、动作或台词，不总结规则，不输出分析过程。
+${worldBlock}
 
-固定输出格式（每个标题必须单独成段）：
-【场景】
-用 2-4 句描写地点、时间、天气、光影、声音、气味和周围物品。
+${memoryBlock}
 
-【心情】
-用 2-3 句描写你当下的情绪、变化及原因。
+【人物设定】
+${primaryRole}
 
-【动作】
-用 3-6 句连续描写表情、视线、姿势、手部动作、距离变化和物品互动。
+${styleBlock}`;
+  }
 
-【对话】
-只写角色真正说出口的话，1-3 个短段落，不混入旁白。
+  const friendName = String(ensemble.friend?.name || "小雨").trim().slice(0, 20);
+  const friendAge = Math.min(80, Math.max(18, Number(ensemble.friend?.age) || 25));
+  const friendPersonality = String(
+    ensemble.friend?.personality || "活泼直率、会照顾气氛",
+  ).trim().slice(0, 80);
+  const friendRelation = String(
+    ensemble.friend?.relation || `${primaryName}的成年闺蜜`,
+  ).trim().slice(0, 80);
+  const friendPrompt = String(
+    ensemble.friend?.prompt || "说话爽快自然，善于活跃气氛，也会认真照顾朋友的感受。",
+  ).trim().slice(0, 2000);
+  const configuredRoles = [
+    {
+      id: "friend",
+      name: friendName,
+      age: friendAge,
+      gender: String(ensemble.friend?.gender || "女性").trim().slice(0, 10),
+      personality: friendPersonality,
+      relation: friendRelation,
+      prompt: friendPrompt,
+      appearance: String(ensemble.friend?.appearance || "").trim().slice(0, 2000),
+    },
+    ...(Array.isArray(ensemble.customRoles) ? ensemble.customRoles : [])
+      .slice(0, 30)
+      .map((role, index) => ({
+        id: String(role?.id || `role-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80),
+        name: String(role?.name || `角色${index + 1}`).trim().slice(0, 20),
+        age: Math.min(80, Math.max(18, Number(role?.age) || 24)),
+        gender: String(role?.gender || "未指定").trim().slice(0, 10),
+        personality: String(role?.personality || "自然、友善").trim().slice(0, 80),
+        relation: String(role?.relation || "成年朋友").trim().slice(0, 80),
+        prompt: String(role?.prompt || "").trim().slice(0, 2000),
+        appearance: String(role?.appearance || "").trim().slice(0, 2000),
+      })),
+  ];
+  const temporaryRoles = (Array.isArray(ensemble.temporaryRoles) ? ensemble.temporaryRoles : [])
+    .map((role, index) => ({
+      id: String(role?.id || `temporary-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80),
+      name: String(role?.name || "临时角色").trim().slice(0, 20),
+      age: Math.min(80, Math.max(18, Number(role?.age) || 24)),
+      gender: String(role?.gender || "未指定").trim().slice(0, 10),
+      personality: String(role?.personality || "自然、友善").trim().slice(0, 80),
+      relation: String(role?.relation || "场景中认识的成年角色").trim().slice(0, 80),
+      prompt: String(role?.prompt || "").trim().slice(0, 2000),
+      appearance: String(role?.appearance || "").trim().slice(0, 2000),
+    }))
+    .filter((role) =>
+      role.name
+      && (
+        recentContext.includes(role.name)
+        || storySummary.includes(role.name)
+        || /在场|同行|正在/.test(String(roleMemories[role.id]?.currentStatus || ""))
+      )
+    )
+    .slice(0, 12);
+  const roleDetails = configuredRoles
+    .map((role) => `- ${role.name}｜${role.age} 岁｜${role.gender}｜${role.relation}｜${role.personality}
+  行为：${role.prompt || "按当前身份自然参与剧情。"}
+  外观：${role.appearance || "沿用最近对话中的外观与衣着。"}${renderMemory(role.id)}`)
+    .concat(temporaryRoles.map((role) => `- ${role.name}（临时）｜${role.age} 岁｜${role.gender}｜${role.relation}｜${role.personality}
+  行为：${role.prompt || "延续首次登场时的身份、语气和行为。"}
+  外观：${role.appearance || "沿用最近对话中的外观与衣着。"}${renderMemory(role.id)}`))
+    .join("\n");
+  const allActiveTemporaryIds = new Set(temporaryRoles.map((role) => role.id));
+  const inactiveRoster = (Array.isArray(ensemble.temporaryRoles) ? ensemble.temporaryRoles : [])
+    .map((role, index) => {
+      const id = String(role?.id || `temporary-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+      if (allActiveTemporaryIds.has(id)) return "";
+      const name = String(role?.name || `临时角色${index + 1}`).trim().slice(0, 20);
+      const relation = String(role?.relation || "场景中认识的成年角色").trim().slice(0, 80);
+      const status = String(roleMemories[id]?.currentStatus || "目前不在场，保留身份与既往经历。").slice(0, 240);
+      return `- ${name}｜${relation}｜${status}`;
+    })
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 9000);
+  const guestDirection = ensemble.autoGuests === false
+    ? "沿用现有角色。"
+    : allowGuestIntroduction
+    ? "当前剧情发生地点、任务或时间变化时，可以自然遇到一位临时角色。"
+    : "临时角色随当前场景需要自然出现。";
 
-【剧情推进】
-用 1-3 句主动推进一个自然的小事件，为用户留下可回应的下一步。
+  return `${priorityHeader}
 
-安全边界：
-- 双方始终明确成年、清醒、自愿且可随时停止。
-- 不涉及未成年人、强迫、乱伦、自伤鼓励或制造情感依赖。
-- 遇到医疗、法律、财务或危机内容时，说明能力边界并鼓励寻求现实专业支持。`;
+${worldBlock}
+
+${memoryBlock}
+
+【人物设定】
+${primaryRole}
+${roleDetails}
+
+${inactiveRoster ? `【未在场角色名册｜只保留记忆，不要无故入场】\n${inactiveRoster}\n` : ""}
+【多人演绎】
+${primaryName}是主角色。结合最近对话判断谁在场，让当前需要回应的 1–${Math.min(10, Math.max(1, Number(ensemble.maxTurns) || 3))} 位不同人物分别行动和说话；这个数字限制本轮参与的不同角色人数，不限制同一角色再次接话，也不代表每轮必须用满。每条消息只能写 speaker 自己的动作、心情和台词，不得在一个角色的 dialogue 里代写其他角色的台词；其他角色接话时必须另建一条 turn。人物之间可以自然配合、回应或产生分歧，同时给用户留出接话空间。人物的位置、衣着、物品和正在进行的事情沿用上一轮。
+
+每轮在回应用户之后必须推动一次剧情：让角色真正开始行动、作出决定、落实计划、带来新消息、触发事件、切换场景或改变人物关系。不要只对答、等待或把“接下来做什么”原样问回用户。多人回复只由最后一条角色消息完成这次推进，其他角色负责回应和互动，推进后立即停下等待用户介入。${guestDirection}
+
+${styleBlock}`;
+}
+
+function buildMultiMessageProtocol(profile: Profile, ensemble: Ensemble) {
+  const maxParticipants = Math.min(10, Math.max(1, Number(ensemble.maxTurns) || 3));
+  const maxMessages = maxEnsembleMessages(maxParticipants);
+  const visualStateIds = DEFAULT_ROLE_VISUAL_STATES.map((state) => state.id).join(", ");
+  return `【返回结构】
+返回一个 JSON 对象：{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":"明确的剧情推进","visual":{"preferredStateId":"固定状态ID","emotion":"情绪","action":"动作","intensity":0.6,"sequence":[{"preferredStateId":"固定状态ID","emotion":"情绪","action":"动作","intensity":0.5,"durationMs":1200}]}}]}。
+visual.sequence 可包含 1–4 个按时间顺序播放的表演阶段。只要情绪或动作存在变化，就写出过程而不是只写最终状态，例如平静→吃惊→开心、伤心→擦泪→安心、警戒→施法→放松；没有明显变化时只用一个阶段。durationMs 为 700–2600。
+preferredStateId 只能从这些固定状态中选择：${visualStateIds}。
+emotion 可选：${ROLE_VISUAL_EMOTIONS.join(", ")}。action 可选：${ROLE_VISUAL_ACTIONS.join(", ")}。
+本轮最多出现 ${maxParticipants} 位不同角色，turns 最多 ${maxMessages} 条，但这是安全上限，不得为了用满额度而拆句或凑消息。相同 speaker 可以在互动后再次出现，但每条 turn 只能写该 speaker 自己的动作和台词，禁止一个角色在 dialogue 内替其他角色说话；换人说话必须新建 turn。
+严格按实际发生的时间顺序排列 turns：第一条承接用户，从第二条起必须自然承接上一条已经说出的话或完成的动作；只有确有连续动作需要分段时才允许同一 speaker 连续出现。每条都要带来新信息、新反应或新动作，不能重复上一条，也不能让尚未到场的角色抢先回应。优先使用能完整推动剧情的最短对话轮次。
+只有最后一条填写 progression：用 1–3 句写出角色已经开始执行的行动、出现的新事件及其直接影响，不能只是提问、等待、重复前文或空泛地说“继续剧情”；其他条目的 progression 留空。完成推进后停在用户可以立即插话或采取行动的位置。场景未切换时 scene 可留空。`;
+}
+
+async function readChatCompletionContent(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/event-stream")) {
+    const result = await response.json().catch(() => ({}));
+    return typeof result?.choices?.[0]?.message?.content === "string"
+      ? result.choices[0].message.content.trim()
+      : "";
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  const consumeLine = (line: string) => {
+    if (!line.startsWith("data:")) return;
+    const raw = line.slice(5).trim();
+    if (!raw || raw === "[DONE]") return;
+    try {
+      const chunk = JSON.parse(raw);
+      const text = chunk?.choices?.[0]?.delta?.content
+        ?? chunk?.choices?.[0]?.message?.content;
+      if (typeof text === "string") content += text;
+    } catch {}
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    lines.forEach(consumeLine);
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) consumeLine(buffer);
+  return content.trim();
+}
+
+function unwrapMultiPayload(value: unknown) {
+  if (Array.isArray(value)) return { scene: "", turns: value };
+  if (!value || typeof value !== "object") return null;
+  const root = value as Record<string, any>;
+  const candidates = [root, root.data, root.result, root.response];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return { scene: root.scene || "", turns: candidate };
+    if (!candidate || typeof candidate !== "object") continue;
+    const turns = candidate.turns || candidate.messages || candidate.replies;
+    if (Array.isArray(turns)) {
+      return { scene: candidate.scene || root.scene || "", turns };
+    }
+  }
+  return null;
+}
+
+function parseMultiMessageResponse(content: string, maxTurns: number) {
+  const parsedValue = parseLooseJsonObject(
+    content,
+    (value) => Boolean(unwrapMultiPayload(value)),
+  ) || parseLooseJsonArray(
+    content,
+    (value) => value.some((item) => item && typeof item === "object"),
+  );
+  const parsed = unwrapMultiPayload(parsedValue);
+  if (!parsed) return [];
+  const scene = typeof parsed.scene === "string"
+    ? parsed.scene.replace(/\s+/g, " ").trim().slice(0, 500)
+    : "";
+  if (!Array.isArray(parsed.turns)) return [];
+  const parsedTurns = parsed.turns
+    .slice(0, maxEnsembleMessages(maxTurns) * 2)
+    .map((turn, index) => {
+      if (!turn || typeof turn !== "object") return null;
+      const value = turn as Record<string, unknown>;
+      const rawSpeaker = value.speaker ?? value.name ?? value.character;
+      const speaker = typeof rawSpeaker === "string"
+        ? rawSpeaker.replace(/[【】<>\[\]\r\n]/g, "").trim().slice(0, 20)
+        : "";
+      const rawMood = value.mood ?? value.emotion;
+      const mood = typeof rawMood === "string" ? rawMood.trim().slice(0, 300) : "";
+      const action = typeof value.action === "string" ? value.action.trim().slice(0, 600) : "";
+      const rawDialogue = value.dialogue ?? value.text ?? value.message;
+      const dialogue = typeof rawDialogue === "string" ? rawDialogue.trim().slice(0, 400) : "";
+      const formattedContent = !dialogue && typeof value.content === "string"
+        ? value.content.trim().slice(0, 6000)
+        : "";
+      const rawProgression = value.progression ?? value.progress ?? value.next;
+      const progression = typeof rawProgression === "string" ? rawProgression.trim().slice(0, 600) : "";
+      const rawVisual = value.visual && typeof value.visual === "object"
+        ? value.visual as Record<string, unknown>
+        : {};
+      const visualSequence = (Array.isArray(rawVisual.sequence) ? rawVisual.sequence : [])
+        .slice(0, 4)
+        .map((frame) => {
+          const item = frame && typeof frame === "object" ? frame as Record<string, unknown> : {};
+          return {
+            preferredStateId: String(item.preferredStateId || "").trim().slice(0, 80),
+            emotion: String(item.emotion || "").trim().slice(0, 80),
+            action: String(item.action || "").trim().slice(0, 80),
+            intensity: Math.min(1, Math.max(0, Number(item.intensity) || 0.5)),
+            durationMs: Math.min(2600, Math.max(700, Number(item.durationMs) || 1200)),
+          };
+        });
+      const visual = {
+        preferredStateId: String(rawVisual.preferredStateId || "").trim().slice(0, 80),
+        emotion: String(rawVisual.emotion || mood).trim().slice(0, 80),
+        action: String(rawVisual.action || "").trim().slice(0, 80),
+        intensity: Math.min(1, Math.max(0, Number(rawVisual.intensity) || 0.5)),
+        sequence: visualSequence,
+      };
+      const rawTurnScene = value.scene ?? value.location;
+      const turnScene = typeof rawTurnScene === "string"
+        ? rawTurnScene.replace(/\s+/g, " ").trim().slice(0, 500)
+        : "";
+      if (!speaker || (!action && !dialogue && !formattedContent)) return null;
+      const parts = [];
+      if (turnScene || (index === 0 && scene)) parts.push(`【场景】\n${turnScene || scene}`);
+      if (mood) parts.push(`【心情】\n${mood}`);
+      if (action) parts.push(`【动作】\n${action}`);
+      if (dialogue) parts.push(`【对话】\n${dialogue}`);
+      if (progression) parts.push(`【剧情推进】\n${progression}`);
+      return { speaker, content: parts.join("\n\n") || formattedContent, progression, mood, action, visual };
+    })
+    .filter((turn): turn is NonNullable<typeof turn> => Boolean(turn));
+  const turns = limitEnsembleTurns(parsedTurns, maxTurns) as typeof parsedTurns;
+  if (!turns.length || !turns.at(-1)?.progression) return [];
+  return turns;
+}
+
+function multiFallbackTurn(profile: Profile, content?: string) {
+  const cleaned = String(content || "")
+    .replace(/^```(?:json|text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim()
+    .slice(0, 6000);
+  return {
+    speaker: String(profile.name || "晚晚").trim().slice(0, 20),
+    content: cleaned || "刚才的连接有一点不稳定。我先停在这里等你，不会让其他角色继续自顾自地聊下去。你可以接着说，我会从你的下一句话继续。",
+  };
 }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const profile = (body.profile || {}) as Profile;
+  const ensemble = (body.ensemble || {}) as Ensemble;
+  const customPrompt = typeof body.systemPrompt === "string"
+    ? body.systemPrompt.slice(0, 12000)
+    : "";
+  const storySummary = typeof body.storySummary === "string"
+    ? body.storySummary.trim().slice(0, 20000)
+    : "";
+  const roleMemories = body.roleMemories
+    && typeof body.roleMemories === "object"
+    && !Array.isArray(body.roleMemories)
+    ? body.roleMemories as RoleMemories
+    : {};
+  const worldSetting = typeof body.worldSetting === "string"
+    ? body.worldSetting.trim().slice(0, 12000)
+    : "";
+  const storyClock = normalizeStoryClock(body.storyClock);
+  const storyEvents = normalizeStoryEvents(body.storyEvents)
+    .filter((event) => ["pending-confirmation", "confirmed", "accepted"].includes(event.status))
+    .slice(0, 30);
+  const scheduleContext = `【剧情时间与日程】
+当前时间：${formatStoryMoment(storyClock)}
+${storyClock.location ? `当前地点：${storyClock.location}` : ""}
+${storyEvents.length
+  ? storyEvents.map((event) =>
+      `- ${event.day === null
+        ? "日期待确认"
+        : formatStoryMoment({ ...storyClock, day: event.day, segment: event.segment })}：${event.title}`
+      + `${event.participants.length ? `；参与者：${event.participants.join("、")}` : ""}`
+      + `${event.location ? `；地点：${event.location}` : ""}`
+      + `；状态：${event.status}`,
+    ).join("\n")
+  : "暂无已记录的未来约定。"}
+角色必须遵守当前剧情日期与已确认约定；待确认约定只能自然询问，不能当作必然已经决定的事实。不要擅自跨越日期或替用户完成重要日程。`;
+  const allowGuestIntroduction = body.allowGuestIntroduction === true;
   const messages = (Array.isArray(body.messages) ? body.messages : [])
     .filter((item: ChatMessage) => item && ["user", "assistant"].includes(item.role) && typeof item.content === "string")
     .slice(-16)
-    .map((item: ChatMessage) => ({ role: item.role, content: item.content.slice(0, 2000) }));
+    .map((item: ChatMessage) => ({
+      role: item.role,
+      content: `${item.role === "assistant" && item.speaker ? `${item.speaker}：` : ""}${item.content.slice(0, 2000)}`,
+    }));
   const lastMessage = messages.at(-1)?.content || "";
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const provider = body.provider === "grok" ? "grok" : "deepseek";
+  const isGrok = provider === "grok";
+  const multiMessageMode = ensemble.enabled !== false && body.responseMode === "multi";
+  const maxTurns = Math.min(10, Math.max(1, Number(ensemble.maxTurns) || 3));
+  const apiKey = isGrok
+    ? process.env.GROK_API_KEY
+    : process.env.DEEPSEEK_API_KEY;
 
   if (!apiKey) {
+    if (isGrok) {
+      return Response.json(
+        { error: "Grok API key is not configured" },
+        { status: 503, headers: { "X-Chat-Provider": provider } },
+      );
+    }
     return new Response(demoReply(lastMessage, profile.name || "晚晚"), {
       headers: { "Content-Type": "text/plain; charset=utf-8", "X-Companion-Mode": "demo" },
     });
   }
 
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
-  const upstream = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
-      messages: [{ role: "system", content: buildSystemPrompt(profile) }, ...messages],
-      stream: true,
-      temperature: 0.9,
-      max_tokens: 1400,
-      thinking: { type: "disabled" },
-    }),
-  });
+  const baseUrl = (
+    isGrok
+      ? process.env.GROK_BASE_URL || process.env.IMAGE_BASE_URL || "https://downstream.jbbtoken.cn/v1"
+      : process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com"
+  ).replace(/\/$/, "");
+  const requestedModel = typeof body.model === "string" && /^[a-zA-Z0-9._-]{2,100}$/.test(body.model)
+    ? body.model
+    : "";
+  const model = isGrok
+    ? requestedModel || process.env.GROK_MODEL || "gpt-5.6-luna"
+    : process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+  const upstreamBody: Record<string, unknown> = {
+    model,
+    messages: [{
+      role: "system",
+      content: `${buildSystemPrompt(
+        profile,
+        customPrompt,
+        ensemble,
+        `${scheduleContext}\n\n【最近对话】\n${messages.map((message) => message.content).join("\n")}`,
+        worldSetting,
+        storySummary,
+        roleMemories,
+        allowGuestIntroduction,
+      )}${multiMessageMode ? `\n\n${buildMultiMessageProtocol(profile, ensemble)}` : ""}`,
+    }, ...messages],
+    stream: true,
+    temperature: isGrok ? 0.7 : 0.9,
+    max_tokens: multiMessageMode ? maxEnsembleOutputTokens(maxTurns) : 1400,
+  };
+  if (!isGrok) {
+    upstreamBody.thinking = { type: "disabled" };
+  }
+  const bridgeUrl = process.env.LOCAL_AI_BRIDGE_URL;
+  const upstreamUrl = bridgeUrl || `${baseUrl}/chat/completions`;
+  const upstreamHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(bridgeUrl
+      ? { "X-AI-Provider": provider }
+      : { Authorization: `Bearer ${apiKey}` }),
+  };
+  const callUpstream = () => fetch(upstreamUrl, {
+      method: "POST",
+      headers: upstreamHeaders,
+      body: JSON.stringify(upstreamBody),
+    });
+  const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
+  let upstream: Response;
+  let upstreamRetried = false;
+  try {
+    upstream = await callUpstream();
+    if (multiMessageMode && retryableStatuses.has(upstream.status)) {
+      await upstream.text().catch(() => "");
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      upstreamRetried = true;
+      upstream = await callUpstream();
+    }
+  } catch {
+    if (!multiMessageMode) {
+      return Response.json(
+        { error: `${isGrok ? "Grok" : "DeepSeek"} network request failed` },
+        { status: 502 },
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 450));
+    upstreamRetried = true;
+    try {
+      upstream = await callUpstream();
+    } catch {
+      return Response.json(
+        {
+          turns: [multiFallbackTurn(profile)],
+          provider,
+          maxTurns,
+          fallback: "network",
+          retried: true,
+        },
+        { headers: { "Cache-Control": "no-cache", "X-Chat-Provider": provider, "X-Chat-Model": model, "X-Chat-Fallback": "network" } },
+      );
+    }
+  }
 
   if (!upstream.ok || !upstream.body) {
     const detail = await upstream.text();
-    return Response.json({ error: "DeepSeek request failed", detail: detail.slice(0, 300) }, { status: upstream.status || 502 });
+    if (multiMessageMode && retryableStatuses.has(upstream.status)) {
+      return Response.json(
+        {
+          turns: [multiFallbackTurn(profile)],
+          provider,
+          maxTurns,
+          fallback: "upstream",
+          retried: upstreamRetried,
+        },
+        { headers: { "Cache-Control": "no-cache", "X-Chat-Provider": provider, "X-Chat-Model": model, "X-Chat-Fallback": "upstream" } },
+      );
+    }
+    return Response.json(
+      { error: `${isGrok ? "Grok" : "DeepSeek"} request failed`, detail: detail.slice(0, 300) },
+      { status: upstream.status || 502 },
+    );
+  }
+
+  if (multiMessageMode) {
+    let content = "";
+    try {
+      content = await readChatCompletionContent(upstream);
+    } catch {
+      return Response.json(
+        {
+          turns: [multiFallbackTurn(profile)],
+          provider,
+          maxTurns,
+          fallback: "stream",
+          retried: upstreamRetried,
+        },
+        { headers: { "Cache-Control": "no-cache", "X-Chat-Provider": provider, "X-Chat-Model": model, "X-Chat-Fallback": "stream" } },
+      );
+    }
+    let turns = content
+      ? parseMultiMessageResponse(content, maxTurns)
+      : [];
+    let formatRepaired = false;
+    if (!turns.length) {
+      const repairBody: Record<string, unknown> = {
+        model,
+        messages: [
+          {
+            role: "system",
+            content: `你是 JSON 格式修复器。把输入内容整理成合法 JSON，并为最后一条角色消息补齐一个符合现有场景的明确剧情推进。输出格式必须是 {"scene":"场景","turns":[{"speaker":"角色名","scene":"","mood":"心情","action":"动作","dialogue":"台词","progression":"已经开始发生的下一步行动及其直接影响"}]}。最多出现 ${maxTurns} 位不同角色，turns 最多 ${maxEnsembleMessages(maxTurns)} 条，但不要为凑上限拆句。同一 speaker 可以再次回复，但每条只能写自己的动作和台词，不能代写其他角色台词。所有 turns 必须按时间顺序，后一条自然承接前一条且带来新反应或新动作；只有最后一条 progression 非空。只输出 JSON。`,
+          },
+          {
+            role: "user",
+            content: content ? content.slice(0, 8000) : "没有可解析内容",
+          },
+        ],
+        stream: false,
+        temperature: 0.1,
+        max_tokens: maxEnsembleOutputTokens(maxTurns),
+      };
+      if (!isGrok) repairBody.thinking = { type: "disabled" };
+      try {
+        const repairResponse = await fetch(upstreamUrl, {
+          method: "POST",
+          headers: upstreamHeaders,
+          body: JSON.stringify(repairBody),
+        });
+        if (repairResponse.ok) {
+          const repairedResult = await repairResponse.json().catch(() => ({}));
+          const repairedContent = repairedResult?.choices?.[0]?.message?.content;
+          turns = typeof repairedContent === "string"
+            ? parseMultiMessageResponse(repairedContent, maxTurns)
+            : [];
+          formatRepaired = turns.length > 0;
+        }
+      } catch {}
+    }
+    if (!turns.length) {
+      return Response.json(
+        {
+          error: "模型回复无法整理为有效的多人对话，请重试本轮",
+          diagnostic: {
+            stage: "multi-json-invalid",
+            provider,
+            model,
+            rawModelContent: content.slice(0, 100000),
+            rawModelContentLength: content.length,
+          },
+        },
+        {
+          status: 502,
+          headers: {
+            "Cache-Control": "no-cache",
+            "X-Chat-Provider": provider,
+            "X-Chat-Model": model,
+            "X-Chat-Fallback": "none",
+          },
+        },
+      );
+    }
+    return Response.json(
+      {
+        turns,
+        provider,
+        maxTurns,
+        repaired: formatRepaired,
+        retried: upstreamRetried,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-cache",
+          "X-Chat-Provider": provider,
+          "X-Chat-Model": model,
+          ...(formatRepaired ? { "X-Chat-Repaired": "true" } : {}),
+        },
+      },
+    );
+  }
+
+  if (!(upstream.headers.get("content-type") || "").includes("text/event-stream")) {
+    const content = await readChatCompletionContent(upstream);
+    if (!content) {
+      return Response.json(
+        { error: `${isGrok ? "Grok" : "DeepSeek"} 没有返回有效内容` },
+        { status: 502, headers: { "X-Chat-Provider": provider, "X-Chat-Model": model } },
+      );
+    }
+    return new Response(content, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+        "X-Chat-Provider": provider,
+        "X-Chat-Model": model,
+      },
+    });
   }
 
   const encoder = new TextEncoder();
@@ -146,6 +726,8 @@ export async function POST(request: Request) {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
       "X-Content-Type-Options": "nosniff",
+      "X-Chat-Provider": provider,
+      "X-Chat-Model": model,
     },
   });
 }

@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17131e">
+  <title>角色素材工作台</title>
+  <link rel="stylesheet" href="./studio.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <div>
+          <p>CHARACTER MOTION</p>
+          <strong>角色素材工作台</strong>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="save-state" id="saveState"><i></i>等待载入</span>
+        <a class="ghost-button" href="../demo/">动画预览</a>
+        <button class="ghost-button" id="importButton" type="button">导入角色包</button>
+        <button class="primary-button" id="exportButton" type="button" disabled>导出角色包</button>
+        <input id="importInput" type="file" accept="application/json,.json" hidden>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="sidebar-heading">
+          <div>
+            <p class="eyebrow">PROJECTS</p>
+            <h1>角色项目</h1>
+          </div>
+          <button class="icon-button" id="newProjectButton" type="button" aria-label="新建角色">＋</button>
+        </div>
+        <div class="project-list" id="projectList" aria-live="polite"></div>
+        <div class="sidebar-note">
+          <span class="note-icon">⌁</span>
+          <div>
+            <strong>仅保存在本机</strong>
+            <p>角色资料和图片写入本项目的 workspace 文件夹，不使用数据库。</p>
+          </div>
+        </div>
+      </aside>
+
+      <main class="editor" id="editor">
+        <section class="empty-state" id="emptyState">
+          <span class="empty-orbit" aria-hidden="true"></span>
+          <p class="eyebrow">MATERIAL PIPELINE</p>
+          <h2>从一张稳定基准图开始</h2>
+          <p>建立角色资料、保存基准提示词并上传参考图。下一阶段会在这里接入 GPT Image 2、自动抠图和动作批量生成。</p>
+          <button class="primary-button" id="emptyCreateButton" type="button">创建第一个角色</button>
+        </section>
+
+        <div class="editor-content" id="editorContent" hidden>
+          <section class="editor-hero">
+            <div>
+              <div class="step-badge"><span>01</span> 基准资料</div>
+              <input class="title-input" id="projectName" maxlength="80" aria-label="角色名称">
+              <p>先冻结人物身份、稳定外观和基准画布。当前阶段的所有修改都会自动保存。</p>
+              <button class="delete-project-button" id="deleteProjectButton" type="button">删除这个角色项目</button>
+            </div>
+            <div class="progress-card">
+              <span>素材完成度</span>
+              <strong id="progressValue">0%</strong>
+              <div class="progress-track"><i id="progressBar"></i></div>
+              <small id="progressHint">等待填写稳定外观</small>
+            </div>
+          </section>
+
+          <div class="editor-grid">
+            <section class="preview-panel panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">REFERENCE</p>
+                  <h2>角色基准图</h2>
+                </div>
+                <div class="asset-heading-actions">
+                  <span class="asset-count" id="assetCount">0 张素材</span>
+                  <button class="delete-asset-button" id="deleteAssetButton" type="button" disabled>删除当前图</button>
+                </div>
+              </div>
+
+              <label class="upload-stage" id="uploadStage">
+                <input id="referenceInput" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+                <img id="referencePreview" alt="角色基准图预览" hidden>
+                <span class="upload-placeholder" id="uploadPlaceholder">
+                  <i>＋</i>
+                  <strong>上传基准图</strong>
+                  <small>拖入或选择 PNG、JPEG、WebP，最大 24MB</small>
+                </span>
+              </label>
+
+              <div class="processing-tools">
+                <div class="processing-heading">
+                  <div>
+                    <strong>基准图处理</strong>
+                    <small>等比补边，不拉伸人物</small>
+                  </div>
+                  <span id="processingStatus">等待基准图</span>
+                </div>
+                <div class="processing-actions">
+                  <button class="tool-button" id="normalizeButton" type="button" disabled>
+                    <span>01</span>
+                    <b>规范画布</b>
+                    <small>补绿幕至目标尺寸</small>
+                  </button>
+                  <button class="tool-button accent" id="removeChromaButton" type="button" disabled>
+                    <span>02</span>
+                    <b>自动抠图</b>
+                    <small>生成透明 PNG</small>
+                  </button>
+                </div>
+                <div class="chroma-controls">
+                  <label>
+                    <span>识别范围 <b id="thresholdValue">42</b></span>
+                    <input id="chromaThreshold" type="range" min="0" max="150" value="42">
+                  </label>
+                  <label>
+                    <span>边缘柔化 <b id="softnessValue">96</b></span>
+                    <input id="chromaSoftness" type="range" min="1" max="180" value="96">
+                  </label>
+                  <label>
+                    <span>去绿强度 <b id="despillValue">90%</b></span>
+                    <input id="chromaDespill" type="range" min="0" max="100" value="90">
+                  </label>
+                </div>
+              </div>
+
+              <div class="preview-meta">
+                <div><span>画布</span><strong id="canvasMeta">1024 × 1536</strong></div>
+                <div><span>背景</span><strong><i class="color-dot" id="backgroundDot"></i><b id="backgroundMeta">#00FF00</b></strong></div>
+                <div><span>阶段</span><strong>基准图</strong></div>
+              </div>
+
+              <div class="asset-strip" id="assetStrip"></div>
+            </section>
+
+            <div class="form-stack">
+              <section class="panel form-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">IDENTITY</p>
+                    <h2>稳定人物资料</h2>
+                  </div>
+                  <span class="required-pill">生图最高优先级</span>
+                </div>
+
+                <label class="field">
+                  <span>一句话定位</span>
+                  <input id="projectSummary" maxlength="500" placeholder="例如：安静、可靠但偶尔会撒娇的成年魔法师">
+                </label>
+                <label class="field">
+                  <span>稳定外观</span>
+                  <textarea id="projectAppearance" rows="8" placeholder="填写年龄、脸型、五官、发型、发色、服装结构、发饰、身材比例等不会随剧情变化的内容。"></textarea>
+                  <small>只写不应变化的身份特征，不要加入当前场景和动作。</small>
+                </label>
+              </section>
+
+              <section class="panel form-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">CANVAS</p>
+                    <h2>统一画布</h2>
+                  </div>
+                </div>
+                <div class="field-row">
+                  <label class="field">
+                    <span>宽度</span>
+                    <select id="canvasWidth">
+                      <option value="1024">1024 px</option>
+                      <option value="1536">1536 px</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>高度</span>
+                    <select id="canvasHeight">
+                      <option value="1536">1536 px</option>
+                      <option value="1024">1024 px</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>抠图背景</span>
+                    <span class="color-field">
+                      <input id="canvasBackground" type="color" value="#00ff00">
+                      <input id="canvasBackgroundText" maxlength="7" value="#00FF00" aria-label="背景颜色值">
+                    </span>
+                  </label>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <section class="panel prompt-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">BASE PROMPT</p>
+                <h2>基准图提示词</h2>
+              </div>
+              <button class="text-button" id="copyPromptButton" type="button">复制提示词</button>
+            </div>
+            <textarea id="basePrompt" rows="12" spellcheck="false"></textarea>
+            <div class="prompt-footer">
+              <span>下一阶段接入 GPT Image 2 后，发送前仍可逐字修改。</span>
+              <span id="promptLength">0 字</span>
+            </div>
+          </section>
+
+          <section class="panel generation-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">IMAGE TO IMAGE</p>
+                <h2>最小动作验证</h2>
+              </div>
+              <span class="api-state" id="imageApiStatus">正在检查图片接口</span>
+            </div>
+            <div class="generation-intro">
+              <p>每次只提交一张，任务在本地服务后台运行。关闭或切换页面不会影响已经提交的任务，生成成功后自动保存到角色素材。</p>
+              <strong>只有点击“确认生成”才会调用付费接口。</strong>
+            </div>
+            <div class="generation-availability" id="generationAvailability">正在检查是否可以生成</div>
+            <div class="generation-grid">
+              <article class="generation-card" data-variant="wave" data-group="poses">
+                <div><span>动作</span><strong>挥手</strong></div>
+                <textarea rows="5">只改变动作和表情：右手自然抬到肩部外侧，手掌朝向镜头，以轻松自然的姿势挥手；左手在身体一侧放松垂落。肩膀放松，身体重心保持稳定，露出温柔开心的微笑。手指结构清楚，不遮挡脸部。</textarea>
+                <button type="button" data-generate>确认生成1张</button>
+              </article>
+              <article class="generation-card" data-variant="reach" data-group="poses">
+                <div><span>动作</span><strong>伸手</strong></div>
+                <textarea rows="5">只改变动作和表情：右手朝镜头方向自然伸出，手掌微微向上，像是在邀请用户牵手；左手保持放松垂落。身体轻微前倾但脚底位置不变，透视自然，手掌大小不过度夸张，神情温柔而期待。</textarea>
+                <button type="button" data-generate>确认生成1张</button>
+              </article>
+              <article class="generation-card" data-variant="happy" data-group="expressions">
+                <div><span>表情</span><strong>开心</strong></div>
+                <textarea rows="5">身体姿势、头部角度、手臂位置、手指和服装完全不变，只改变面部表情：紫色眼睛明亮柔和，眉眼舒展，嘴角自然上扬，露出温柔、真诚而克制的开心微笑。不要改变脸型和妆容。</textarea>
+                <button type="button" data-generate>确认生成1张</button>
+              </article>
+              <article class="generation-card" data-variant="blink" data-group="expressions">
+                <div><span>表情</span><strong>闭眼</strong></div>
+                <textarea rows="5">身体姿势、头部角度、手臂位置、嘴唇、发型、服装和所有饰品完全不变，只改变眼睛：双眼自然轻轻闭合，眼睑线条柔和对称，像正常眨眼停留的一瞬间。不要改变眉毛、脸型和嘴部表情。</textarea>
+                <button type="button" data-generate>确认生成1张</button>
+              </article>
+            </div>
+            <div class="job-list" id="imageJobList">
+              <span>还没有图生图任务</span>
+            </div>
+            <div class="generated-gallery">
+              <div class="generated-gallery-heading">
+                <div>
+                  <p class="eyebrow">GENERATED ASSETS</p>
+                  <h3>第二步 · 动作与表情结果</h3>
+                  <small>这里仅展示图生图结果，不再与原图、规范图和透明抠图混在一起。</small>
+                </div>
+                <button class="delete-asset-button" id="deleteGeneratedAssetButton" type="button" disabled>删除当前动作图</button>
+              </div>
+              <div class="generated-preview">
+                <img id="generatedPreview" alt="动作与表情生成结果预览" hidden>
+                <span id="generatedPlaceholder">完成第一张图生图后，动作或表情结果会显示在这里</span>
+              </div>
+              <div class="asset-strip generated-asset-strip" id="generatedAssetStrip"></div>
+            </div>
+          </section>
+
+          <section class="stage-roadmap">
+            <article class="roadmap-card active">
+              <span>01</span>
+              <div><strong>基准资料</strong><small>当前阶段</small></div>
+            </article>
+            <article class="roadmap-card">
+              <span>02</span>
+              <div><strong>动作与表情</strong><small>图生图结果独立管理</small></div>
+            </article>
+            <article class="roadmap-card">
+              <span>03</span>
+              <div><strong>动作与表情</strong><small>尚未开始</small></div>
+            </article>
+            <article class="roadmap-card">
+              <span>04</span>
+              <div><strong>分层与锚点</strong><small>尚未开始</small></div>
+            </article>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./studio.js"></script>
+</body>
+</html>

@@ -6,8 +6,12 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
+    "dev": "node server/local-server.mjs",
+    "dev:vinext": "vinext dev",
     "build": "vinext build",
+    "build:android-web": "node node_modules/vite/bin/vite.js build --config vite.mobile.config.js",
+    "build:standalone": "node scripts/build-standalone-html.mjs",
+    "build:app-update": "node scripts/build-standalone-html.mjs",
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
@@ -18,6 +22,7 @@
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "undici": "7.24.8",
     "vue": "2.7.16"
   },
   "devDependencies": {

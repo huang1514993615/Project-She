@@ -45,3 +45,9 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# personal runtime data
+/data/*.json
+/data/*.tmp
+/data/*.log
+/data/generated-images/
