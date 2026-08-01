@@ -129,7 +129,11 @@ test("image prompt context keeps stable appearance above recent dialogue", () =>
   assert.match(scene.user, /黑发紫瞳/);
   assert.match(scene.user, /右手腕红绳/);
   assert.match(scene.user, /暗影神子/);
-  assert.match(scene.user, /艾尔德兰末法纪元/);
+  assert.match(scene.user, /当前状态的唯一来源——最近对话/);
+  assert.match(scene.user, /历史状态快照/);
+  assert.doesNotMatch(scene.user, /艾尔德兰末法纪元/);
+  assert.doesNotMatch(scene.user, /三人躲避教廷追捕/);
+  assert.doesNotMatch(scene.user, /世界设定/);
   assert.match(scene.system, /不是把最后一条回复改写成分镜/);
   assert.match(scene.system, /禁止输出对白/);
 
@@ -139,7 +143,7 @@ test("image prompt context keeps stable appearance above recent dialogue", () =>
     role: body.profile,
   }, "character");
   assert.match(character.user, /稳定外观（必须逐项落实到画面）/);
-  assert.match(character.user, /最近相关对话——仅作为当前状态证据/);
+  assert.match(character.user, /当前状态的唯一来源——最近相关对话/);
   const formattedCharacter = formatImagePromptResponse(JSON.stringify({
     wardrobeState: "深紫色裙摆被雨雾轻微打湿",
     pose: "正面站立，右手轻触手腕红绳",
@@ -497,14 +501,17 @@ test("uses the Node file API and mobile quick menu", async () => {
   assert.match(localServer, /function resolveImageSize/);
   assert.match(localServer, /1024x1536/);
   assert.match(localServer, /不得把男性写成女性/);
-  assert.match(imagePromptContext, /最近对话只负责确定此刻地点/);
+  assert.match(imagePromptContext, /最近对话是此刻状态的唯一依据/);
+  assert.match(imagePromptContext, /历史状态快照/);
+  assert.match(imagePromptContext, /服装与衣物以最近对话为准/);
   assert.match(imagePromptContext, /稳定外观（必须逐项落实到画面）/);
   assert.match(imagePromptContext, /不是把最后一条回复改写成分镜/);
   assert.match(localServer, /不默认套用白色雪纺或固定身材/);
   assert.match(localServer, /人物正面或正面三分之二角度/);
   assert.match(localServer, /generateImageWithRetry/);
-  assert.match(localServer, /isRetryableImageRefusal/);
-  assert.match(localServer, /maxAttempts = 3/);
+  assert.match(localServer, /未自动重试/);
+  assert.doesNotMatch(localServer, /isRetryableImageRefusal/);
+  assert.doesNotMatch(localServer, /maxAttempts\s*=\s*3/);
   assert.match(localServer, /normalizeImageArchive/);
   assert.match(localServer, /deleteGeneratedImageFile/);
   assert.match(localServer, /clearDeletedImageReferences/);

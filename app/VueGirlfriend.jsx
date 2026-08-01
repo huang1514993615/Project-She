@@ -364,11 +364,13 @@ export const CompanionApp = Vue.extend({
             <div class="suggestion-label">
               <span>{{ ensemblePlaying ? '角色正在接话，你可以随时插话' : (suggestionsLoading ? '正在想接下来的剧情…' : '你可以这样回应') }}</span>
               <i v-if="suggestionsLoading || ensemblePlaying" aria-hidden="true"></i>
+              <span v-if="currentSuggestionStyle" class="suggestion-style-tag">更{{ currentSuggestionStyle }}</span>
               <button v-if="ensemblePlaying" type="button" @click="stopEnsemblePlayback">暂停接话</button>
               <button v-if="lastReplyStartId" type="button" @click="scrollToMessage(lastReplyStartId)">回到本轮开头</button>
             </div>
             <div class="suggestions">
               <button v-for="item in suggestions" :key="item" @click="quickSend(item)" :disabled="suggestionsLoading || sending || summarizing || ensemblePlaying || editingMessageId !== null">{{ item }}</button>
+              <button type="button" class="suggestion-refresh" title="换一组（随机风格：更冒险 / 更保守 / 更幽默）" aria-label="换一组快捷回复" :disabled="suggestionsLoading || sending || summarizing || ensemblePlaying || editingMessageId !== null" @click="rerollSuggestions">⟳</button>
             </div>
           </div>
 
@@ -528,6 +530,15 @@ export const CompanionApp = Vue.extend({
             <div class="memory-compression-settings compact">
               <label><input v-model="randomRoleEnabled" type="checkbox" /><span><b>合理引入新角色</b><small>只在新一天、新地点、任务或新剧情时考虑加入，优先成年女性</small></span></label>
               <label class="memory-threshold">间隔参考 <b>{{ randomRoleInterval }} 条</b><input v-model.number="randomRoleInterval" type="range" min="8" max="60" step="2" /></label>
+              <label class="action-style-field">主角行动倾向
+                <small>用于快捷回复生成的隐式约束</small>
+                <select v-model="actionStyle" @change="saveActionStyle">
+                  <option value="观察型">观察型 · 先观察、询问再行动</option>
+                  <option value="行动型">行动型 · 直接执行、推进任务</option>
+                  <option value="幽默型">幽默型 · 轻松俏皮、带玩笑感</option>
+                  <option value="谨慎型">谨慎型 · 稳妥安全、留有余地</option>
+                </select>
+              </label>
             </div>
             <div class="prompt-actions">
               <span></span>
@@ -681,7 +692,7 @@ export const CompanionApp = Vue.extend({
           <section v-if="galleryTab === 'scene'" class="image-studio-editor">
             <div class="image-studio-toolbar">
               <label class="model-manager-toggle">
-                <span><b>允许图片生成</b><small>最多调用三次；只有明确的 400 内容拒绝才会自动改写重试</small></span>
+                <span><b>允许图片生成</b><small>生图失败不自动重试，每次提交只调用一次图片接口</small></span>
                 <input v-model="imageEnabled" type="checkbox" @change="saveImagePreference" :disabled="imageMode !== 'configured'" />
               </label>
               <label class="field-label">图片模型
@@ -702,6 +713,26 @@ export const CompanionApp = Vue.extend({
               placeholder="点击“从当前剧情整理”，或直接输入要生成的画面…"
               @input="persist"
             ></textarea>
+            <div class="image-style-presets">
+              <span>风格预设</span>
+              <button
+                v-for="preset in imageStylePresets"
+                :key="preset"
+                type="button"
+                :class="{ active: imageStylePreset === preset && !imageStyleCustom }"
+                :disabled="imagePromptPreparing || imageGenerating || !imageEnabled"
+                @click="applySceneImageStyle(preset)"
+              >{{ preset }}</button>
+              <input
+                v-model.trim="imageStyleCustom"
+                maxlength="200"
+                placeholder="自定义风格，如：赛博朋克霓虹、水彩绘本…"
+                aria-label="自定义画面风格"
+                @keydown.enter.prevent="applySceneCustomStyle"
+              />
+              <button type="button" class="prompt-reset" :disabled="!imageStyleCustom || imagePromptPreparing || imageGenerating || !imageEnabled" @click="applySceneCustomStyle">按此风格整理</button>
+              <button v-if="imageStylePreset || imageStyleCustom" type="button" class="style-clear" @click="clearSceneImageStyle">清除风格</button>
+            </div>
             <p class="image-prompt-warning">提交前可自由修改。若图片模型明确返回 400 内容拒绝，系统会让对话模型独立调整不合适的部分，图片接口总计最多调用三次。</p>
             <div class="image-prompt-actions">
               <button class="prompt-reset" @click="prepareScenePrompt" :disabled="imagePromptPreparing || imageGenerating || !imageEnabled">
@@ -1010,7 +1041,7 @@ export const CompanionApp = Vue.extend({
               <input v-model="timeJumpKeepOverdue" type="checkbox" />
             </label>
             <label class="model-manager-toggle">
-              <span><b>在聊天中插入时间过渡</b><small>只记录日常流逝，不替你完成重大决定</small></span>
+              <span><b>跳转后让角色回应新时间</b><small>AI 会主动描述场景变化并继续剧情，不用等你先开口</small></span>
               <input v-model="timeJumpAddTransition" type="checkbox" />
             </label>
             <button type="button" class="save-profile" @click="confirmTimeJump">确认推进</button>
@@ -1126,6 +1157,54 @@ export const CompanionApp = Vue.extend({
               <label class="field-label image-prompt-field">生图提示词（只用于图片模型） <b>{{ (selectedRole.imagePrompt || '').length }}/1200</b>
                 <textarea v-model.trim="selectedRole.imagePrompt" maxlength="1200" rows="7" placeholder="点击“整理提示词”自动生成，也可以直接输入并修改…"></textarea>
               </label>
+              <div v-if="standaloneMode" class="reference-image-picker">
+                <div class="reference-image-heading">
+                  <span><b>参考图（可选）</b><small>基于该角色已有图片生成，保持脸型、发型和外观稳定</small></span>
+                </div>
+                <div v-if="selectedRoleReferenceImage" class="reference-image-current">
+                  <img v-local-image="{ src: selectedRoleReferenceImage.imageUrl, thumbnail: true }" :src="selectedRoleReferenceImage.imageUrl" :alt="selectedRole.name + '的参考图'" />
+                  <span>已选择参考图，提交时会自动附加“保持同一人物”约束</span>
+                  <button type="button" class="style-clear" @click="selectedRoleReferenceImage = null">清除</button>
+                </div>
+                <div v-else class="reference-image-empty">
+                  <span v-if="!selectedRoleAlbumItems.length">该角色还没有可用的图片，先生成或导入一张形象。</span>
+                  <button v-else type="button" class="prompt-reset" @click="roleReferencePickerOpen = !roleReferencePickerOpen">
+                    {{ roleReferencePickerOpen ? '收起选择器' : '从相册选择参考图' }}
+                  </button>
+                </div>
+                <div v-if="roleReferencePickerOpen" class="reference-picker-grid">
+                  <button
+                    v-for="item in selectedRoleAlbumItems"
+                    :key="item.id"
+                    type="button"
+                    :class="{ active: selectedRoleReferenceImage && selectedRoleReferenceImage.imageUrl === item.imageUrl }"
+                    @click="pickRoleReferenceImage(item)"
+                  >
+                    <img v-local-image="{ src: item.imageUrl, thumbnail: true }" :src="item.imageUrl" :alt="item.archive?.title || '参考图'" loading="lazy" />
+                    <span>{{ item.albumTypeLabel || '人物形象' }}</span>
+                  </button>
+                </div>
+              </div>
+              <div class="image-style-presets compact">
+                <span>风格预设</span>
+                <button
+                  v-for="preset in imageStylePresets"
+                  :key="preset"
+                  type="button"
+                  :class="{ active: characterImageStylePreset === preset && !characterImageStyleCustom }"
+                  :disabled="characterPromptPreparing"
+                  @click="applyCharacterImageStyle(preset)"
+                >{{ preset }}</button>
+                <input
+                  v-model.trim="characterImageStyleCustom"
+                  maxlength="200"
+                  placeholder="自定义风格，如：复古胶片、水墨丹青…"
+                  aria-label="自定义人物形象风格"
+                  @keydown.enter.prevent="applyCharacterCustomStyle"
+                />
+                <button type="button" class="prompt-reset" :disabled="!characterImageStyleCustom || characterPromptPreparing" @click="applyCharacterCustomStyle">按此风格整理</button>
+                <button v-if="characterImageStylePreset || characterImageStyleCustom" type="button" class="style-clear" @click="clearCharacterImageStyle">清除风格</button>
+              </div>
               <div class="role-detail-status">
                 <span :class="{ ready: imageMode === 'configured' }">{{ imageMode === 'configured' ? imageModel + ' 已配置' : '图片接口未配置' }}</span>
                 <small>{{ standaloneMode ? '页面保持打开时会后台继续，不影响聊天' : '提交后在电脑后台继续，可关闭手机页面' }}</small>
@@ -1524,6 +1603,8 @@ export const CompanionApp = Vue.extend({
       roleProfileGenerationIds: [],
       characterPrompt: "",
       characterTargetId: "",
+      selectedRoleReferenceImage: null,
+      roleReferencePickerOpen: false,
       imageJobs: [],
       activeImageJobs: [],
       galleryTab: "scene",
@@ -1543,6 +1624,13 @@ export const CompanionApp = Vue.extend({
       randomRoleEnabled: true,
       randomRoleInterval: 18,
       nextGuestAt: 18,
+      actionStyle: "行动型",
+      currentSuggestionStyle: "",
+      imageStylePresets: ["2d动漫", "3d动漫", "电影写实", "暗黑奇幻"],
+      imageStylePreset: "",
+      imageStyleCustom: "",
+      characterImageStylePreset: "",
+      characterImageStyleCustom: "",
       summarySaving: false,
       summarizing: false,
       storySummary: "",
@@ -2051,6 +2139,9 @@ export const CompanionApp = Vue.extend({
       this.imageEnabled = saved?.imageEnabled === true;
       this.imageQuality = "standard";
       if (typeof saved?.imagePrompt === "string") this.imagePrompt = saved.imagePrompt.slice(0, 1200);
+      if (["观察型", "行动型", "幽默型", "谨慎型"].includes(saved?.actionStyle)) {
+        this.actionStyle = saved.actionStyle;
+      }
       if (saved?.storyClock) this.storyClock = normalizeStoryClock(saved.storyClock);
       if (Array.isArray(saved?.storyEvents)) this.storyEvents = normalizeStoryEvents(saved.storyEvents);
       if (this.profile.relation === "成年恋人") this.profile.relation = "妻子";
@@ -2103,6 +2194,9 @@ export const CompanionApp = Vue.extend({
       this.autoCompressThreshold = Math.min(120, Math.max(20, Number(saved?.autoCompressThreshold) || 40));
       this.randomRoleEnabled = saved?.randomRoleEnabled !== false;
       this.randomRoleInterval = Math.min(60, Math.max(8, Number(saved?.randomRoleInterval) || 18));
+      if (["观察型", "行动型", "幽默型", "谨慎型"].includes(saved?.actionStyle)) {
+        this.actionStyle = saved.actionStyle;
+      }
       if (saved?.stageBackground && typeof saved.stageBackground === "object") {
         this.stageBackground = {
           ...this.stageBackground,
@@ -2327,6 +2421,8 @@ export const CompanionApp = Vue.extend({
           : "profile";
       this.characterPromptFallback = false;
       this.roleDetailOpen = true;
+      this.selectedRoleReferenceImage = null;
+      this.roleReferencePickerOpen = false;
       if (this.roleDetailTab === "visual") this.openVisualLibrary();
     },
     openVisualLibrary() {
@@ -3088,6 +3184,13 @@ export const CompanionApp = Vue.extend({
       this.characterPrompt = role.imagePrompt.trim().slice(0, 1200);
       this.generateCharacterImage();
     },
+    pickRoleReferenceImage(item) {
+      this.selectedRoleReferenceImage = {
+        imageUrl: String(item?.imageUrl || ""),
+        jobId: String(item?.id || ""),
+      };
+      this.roleReferencePickerOpen = false;
+    },
     openPromptSection(section = "") {
       this.settingsOpen = false;
       this.roleDetailOpen = false;
@@ -3139,6 +3242,15 @@ export const CompanionApp = Vue.extend({
         this.showToast("世界设定与角色加入规则已保存");
       } catch {
         this.showToast("世界设定保存失败");
+      }
+    },
+    async saveActionStyle() {
+      this.persist();
+      try {
+        await this.saveSettings();
+        this.showToast(`主角行动倾向已设为“${this.actionStyle}”`);
+      } catch {
+        this.showToast("行动倾向保存失败");
       }
     },
     async pollImageJobs() {
@@ -3287,6 +3399,9 @@ export const CompanionApp = Vue.extend({
         this.autoCompressThreshold = Math.min(120, Math.max(20, Number(saved?.autoCompressThreshold) || 40));
         this.randomRoleEnabled = saved?.randomRoleEnabled !== false;
         this.randomRoleInterval = Math.min(60, Math.max(8, Number(saved?.randomRoleInterval) || 18));
+        if (["观察型", "行动型", "幽默型", "谨慎型"].includes(saved?.actionStyle)) {
+          this.actionStyle = saved.actionStyle;
+        }
         if (saved?.stageBackground && typeof saved.stageBackground === "object") {
           this.stageBackground = {
             ...this.stageBackground,
@@ -3395,6 +3510,7 @@ export const CompanionApp = Vue.extend({
           imagePrompt: this.imagePrompt,
           suggestions: this.suggestions,
           nextGuestAt: this.nextGuestAt,
+          actionStyle: this.actionStyle,
           storyClock: this.storyClock,
           storyEvents: this.storyEvents,
         }));
@@ -3614,7 +3730,7 @@ export const CompanionApp = Vue.extend({
         if (!response.ok || !models.length) throw new Error(result.error || "图片模型列表为空");
         this.availableImageModels = models;
         if (!this.modelConnectionWarning && typeof result.discoveryError === "string" && result.discoveryError) {
-          this.modelConnectionWarning = "新中转站 Token 验证失败，当前显示的是 JSON 备用模型；更新 DOWNSTREAM_API_KEY 并重启后会自动查询完整列表。";
+          this.modelConnectionWarning = "部分模型列表获取失败，当前显示的是本地备用模型；请检查对应接口的 API Key 配置。";
         }
         if (!models.includes(this.imageModel)) {
           this.imageModel = models.includes(result.defaultModel) ? result.defaultModel : models[0];
@@ -3639,7 +3755,7 @@ export const CompanionApp = Vue.extend({
       this.persist();
       this.showToast(`${model} 图片生成已启用`);
     },
-    async refreshSuggestions(provider = this.chatProvider) {
+    async refreshSuggestions(provider = this.chatProvider, style = "") {
       const requestId = ++this.suggestionRequestId;
       this.suggestionsLoading = true;
       try {
@@ -3659,6 +3775,8 @@ export const CompanionApp = Vue.extend({
             storyClock: this.storyClock,
             storyEvents: this.storyEvents,
             worldSetting: this.worldSetting,
+            actionStyle: this.actionStyle,
+            style,
             messages: contextMessages,
           }),
         });
@@ -3668,6 +3786,7 @@ export const CompanionApp = Vue.extend({
         }
         if (requestId === this.suggestionRequestId) {
           this.suggestions = result.suggestions;
+          this.currentSuggestionStyle = style;
         }
       } catch {
         if (requestId === this.suggestionRequestId) {
@@ -3679,6 +3798,12 @@ export const CompanionApp = Vue.extend({
           this.persist();
         }
       }
+    },
+    rerollSuggestions() {
+      if (this.suggestionsLoading || this.sending || this.summarizing || this.ensemblePlaying || this.editingMessageId !== null) return;
+      const styles = ["冒险", "保守", "幽默"];
+      const style = styles[Math.floor(Math.random() * styles.length)];
+      this.refreshSuggestions(this.chatProvider, style);
     },
     imageQualityLabel(quality) {
       return { low: "低质量", medium: "中质量", high: "高质量", standard: "标准质量" }[quality] || "场景图";
@@ -3922,6 +4047,32 @@ export const CompanionApp = Vue.extend({
         this.showToast("请先在 .env.local 配置 DOWNSTREAM_API_KEY");
       }
     },
+    applySceneImageStyle(preset) {
+      this.imageStylePreset = preset;
+      this.imageStyleCustom = "";
+      this.prepareScenePrompt();
+    },
+    applySceneCustomStyle() {
+      this.imageStylePreset = "";
+      this.prepareScenePrompt();
+    },
+    clearSceneImageStyle() {
+      this.imageStylePreset = "";
+      this.imageStyleCustom = "";
+    },
+    applyCharacterImageStyle(preset) {
+      this.characterImageStylePreset = preset;
+      this.characterImageStyleCustom = "";
+      this.prepareCharacterPrompt(this.roleDetailTargetId);
+    },
+    applyCharacterCustomStyle() {
+      this.characterImageStylePreset = "";
+      this.prepareCharacterPrompt(this.roleDetailTargetId);
+    },
+    clearCharacterImageStyle() {
+      this.characterImageStylePreset = "";
+      this.characterImageStyleCustom = "";
+    },
     async prepareCharacterPrompt(targetId) {
       if (this.characterPromptPreparing || this.characterGenerating) return;
       const role = targetId === "primary"
@@ -3946,6 +4097,8 @@ export const CompanionApp = Vue.extend({
             imageModel: this.imageModel,
             roleId: targetId,
             role,
+            style: this.characterImageStylePreset || this.characterImageStyleCustom,
+            storyClock: this.storyClock,
             worldSetting: this.worldSetting,
             storySummary: this.storySummary,
             roleMemories: this.roleMemories,
@@ -3999,6 +4152,14 @@ export const CompanionApp = Vue.extend({
             targetName: role.name,
             imageModel: this.imageModel,
             prompt: this.characterPrompt,
+            ...(this.standaloneMode && this.selectedRoleReferenceImage?.imageUrl
+              ? {
+                  referenceImage: {
+                    imageUrl: this.selectedRoleReferenceImage.imageUrl,
+                    jobId: this.selectedRoleReferenceImage.jobId || "",
+                  },
+                }
+              : {}),
             archive: this.characterArchiveSnapshot(role),
           }),
         });
@@ -4048,6 +4209,8 @@ export const CompanionApp = Vue.extend({
             imageModel: this.imageModel,
             profile: this.profile,
             ensemble: this.ensemble,
+            style: this.imageStylePreset || this.imageStyleCustom,
+            storyClock: this.storyClock,
             worldSetting: this.worldSetting,
             storySummary: this.storySummary,
             roleMemories: this.roleMemories,
@@ -4386,18 +4549,16 @@ export const CompanionApp = Vue.extend({
       this.storyClock = target;
       this.dayCount = target.day;
       this.timeJumpOpen = false;
-      if (this.timeJumpAddTransition) {
-        this.messages.push({
-          id: Date.now(),
-          role: "assistant",
-          content: `【时间推进】\n剧情时间从“${previous}”推进到“${formatStoryMoment(target)}”。期间只记录日常过渡，没有替你完成重大决定。`,
-          time: this.now(),
-        });
-        this.saveHistory().catch(() => {});
-      }
       this.saveSettings().catch(() => this.showToast("剧情时间保存失败"));
       this.mobileTab = "chat";
-      this.$nextTick(() => this.scrollBottom());
+      if (this.timeJumpAddTransition) {
+        this.sendMessage({
+          hiddenDriver: true,
+          driverContent: `时间已经推进：从“${previous}”到“${formatStoryMoment(target)}”。请先以自然的口吻，简短交代这期间之前正在进行的事、未聊完的话题或手头事务的合理结果（日常收尾即可），再描述新时间点的场景变化、角色状态和正在发生的小事，让剧情自然衔接并继续向前推进一小步；不要擅自替我拿主意，说完自然停下等我。`,
+        });
+      } else {
+        this.$nextTick(() => this.scrollBottom());
+      }
       this.showToast(`已推进到第${target.day}日·${storySegmentLabel(target.segment)}`);
     },
     respondToDueEvent(event, action) {
@@ -4616,8 +4777,9 @@ export const CompanionApp = Vue.extend({
       }
       return false;
     },
-    async sendMessage() {
-      const content = this.draft.trim();
+    async sendMessage(options = {}) {
+      const content = String(options?.driverContent || this.draft || "").trim();
+      const hiddenDriver = options?.hiddenDriver === true;
       if (!content || this.sending || this.summarizing || this.editingMessageId !== null) return;
       if (this.autoCompress && this.compressibleMessageCount >= this.autoCompressThreshold) {
         await this.summarizeConversation(true);
@@ -4634,10 +4796,10 @@ export const CompanionApp = Vue.extend({
       this.suggestionRequestId += 1;
       window.clearTimeout(this.suggestionRefreshTimer);
       this.suggestionsLoading = false;
-      this.draft = "";
+      if (!hiddenDriver) this.draft = "";
       this.sending = true;
       const userMessage = { id: Date.now(), role: "user", content, time: this.now() };
-      this.messages.push(userMessage);
+      if (!hiddenDriver) this.messages.push(userMessage);
       const moodTask = this.tasks.find((task) => task.id === 2);
       if (moodTask) moodTask.done = true;
       const reply = { id: Date.now() + 1, role: "assistant", content: "", time: this.now(), typing: true };
@@ -4665,10 +4827,14 @@ export const CompanionApp = Vue.extend({
             roleMemories: this.roleMemories,
             worldSetting: this.worldSetting,
             allowGuestIntroduction,
-            messages: this.messages
-              .filter((item) => !item.typing)
-              .slice(-14)
-              .map(({ role, content, speaker }) => ({ role, content, speaker })),
+            messages: (() => {
+              const contextMessages = this.messages
+                .filter((item) => !item.typing && typeof item.content === "string" && item.content.trim())
+                .slice(-13)
+                .map(({ role, content: messageContent, speaker }) => ({ role, content: messageContent, speaker }));
+              if (hiddenDriver) contextMessages.push({ role: "user", content, speaker: "" });
+              return contextMessages.slice(-14);
+            })(),
           }),
         });
         if (!response.ok || !response.body) {
@@ -4738,7 +4904,9 @@ export const CompanionApp = Vue.extend({
           this.persist();
           this.saveHistory().catch(() => this.showToast("聊天记录写入失败"));
           this.scrollToMessage(this.lastReplyStartId);
-          const eventDecisionTask = this.detectAndRecordStoryEvent(content, userMessage.id);
+          const eventDecisionTask = hiddenDriver
+            ? Promise.resolve()
+            : this.detectAndRecordStoryEvent(content, userMessage.id);
           if (chatCompleted) {
             if (allowGuestIntroduction) {
               this.nextGuestAt = this.compressibleMessageCount + this.randomRoleInterval;
@@ -5144,6 +5312,7 @@ export const CompanionApp = Vue.extend({
           autoCompressThreshold: this.autoCompressThreshold,
           randomRoleEnabled: this.randomRoleEnabled,
           randomRoleInterval: this.randomRoleInterval,
+          actionStyle: this.actionStyle,
           stageBackground: this.stageBackground,
           summaryUpdatedAt: this.summaryUpdatedAt,
         }),

@@ -119,6 +119,7 @@ const mobileDefaultSettings = {
   autoCompressThreshold: 40,
   randomRoleEnabled: true,
   randomRoleInterval: 18,
+  actionStyle: "行动型",
   summaryUpdatedAt: "",
 };
 const defaultSettings = window.__NIGHT_MAILBOX_STANDALONE__
@@ -150,11 +151,29 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const PREVIOUS_DEFAULT_FIVE_SECTION_PROMPT = `你在互动剧情中扮演“{{name}}”：{{age}} 岁，性格“{{personality}}”，与用户的关系是“{{relation}}”。
+
+用自然、具体、有生活感的中文回应。延续上一轮的地点、人物状态、衣着、物品和未完成动作；先正面回应用户，再主动推动剧情。描写环境、心情和动作时使用可感知的细节，让台词保持人物自己的语气。
+
+每轮都要让局面产生一个明确变化，例如角色开始执行一件事、作出决定、提出并落实计划、带来新消息、触发事件、改变地点或让人物关系向前一步。不能只回答一句、原地等待或用“接下来想做什么”把推动责任交还给用户。
+
+回复分为【场景】【心情】【动作】【对话】【剧情推进】五段。【剧情推进】用 1–3 句写出已经开始发生的下一步行动及其直接结果，同时留下用户可以介入的具体位置。内容服从当前世界设定、已经发生的剧情和人物档案，不在回复中解释或复述提示词。`;
+
+function normalizePromptWhitespace(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
 function mergeSettings(value) {
   const input = value && typeof value === "object" ? value : {};
+  const storedPrompt = typeof input?.systemPrompt === "string" ? input.systemPrompt : "";
+  const migratedPrompt = normalizePromptWhitespace(storedPrompt)
+    === normalizePromptWhitespace(PREVIOUS_DEFAULT_FIVE_SECTION_PROMPT)
+    ? DEFAULT_SYSTEM_PROMPT
+    : storedPrompt;
   return {
     ...clone(defaultSettings),
     ...input,
+    systemPrompt: migratedPrompt || DEFAULT_SYSTEM_PROMPT,
     profile: { ...clone(defaultSettings.profile), ...(input.profile || {}) },
     ensemble: {
       ...clone(defaultSettings.ensemble),
@@ -1114,53 +1133,60 @@ async function deleteAssetIfUnreferenced(reference) {
   return true;
 }
 
-async function nativeHttpRequest(url, options = {}) {
-  const plus = await waitForPlus();
-  if (!plus?.net?.XMLHttpRequest) {
-    const controller = new AbortController();
-    const timeoutMs = Number(options.timeout || 120000);
-    let timeoutId;
-    try {
-      const timeout = new Promise((_, reject) => {
-        timeoutId = window.setTimeout(() => {
-          controller.abort();
-          reject(new Error("直连接口请求超时"));
-        }, timeoutMs);
-      });
-      const response = await Promise.race([
-        originalFetch(url, { ...options, signal: controller.signal }),
-        timeout,
-      ]);
-      const text = await response.text();
-      return {
-        ok: response.ok,
-        status: response.status,
-        text,
-        headers: response.headers,
-      };
-    } catch (error) {
-      if (error?.name === "AbortError" || error?.message === "直连接口请求超时") {
-        const timeoutError = new Error("直连接口请求超时");
-        timeoutError.diagnostic = {
-          stage: "browser-network-timeout",
-          requestUrl: String(url).replace(/[?#].*$/, "").slice(0, 500),
-          timeoutMs,
-          rawResponse: "",
-        };
-        throw timeoutError;
-      }
-      const networkError = new Error("浏览器无法直连接口；请确认网络正常，并且中转站允许 CORS 跨域请求");
-      networkError.diagnostic = {
-        stage: "browser-network-or-cors",
+async function nativeFetchRequest(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutMs = Number(options.timeout || 120000);
+  let timeoutId;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        controller.abort();
+        reject(new Error("直连接口请求超时"));
+      }, timeoutMs);
+    });
+    const response = await Promise.race([
+      originalFetch(url, { ...options, signal: controller.signal }),
+      timeout,
+    ]);
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      text,
+      headers: response.headers,
+    };
+  } catch (error) {
+    if (error?.name === "AbortError" || error?.message === "直连接口请求超时") {
+      const timeoutError = new Error("直连接口请求超时");
+      timeoutError.diagnostic = {
+        stage: "browser-network-timeout",
         requestUrl: String(url).replace(/[?#].*$/, "").slice(0, 500),
         timeoutMs,
-        browserError: String(error?.message || error).slice(0, 1000),
         rawResponse: "",
       };
-      throw networkError;
-    } finally {
-      window.clearTimeout(timeoutId);
+      throw timeoutError;
     }
+    const networkError = new Error("浏览器无法直连接口；请确认网络正常，并且中转站允许 CORS 跨域请求");
+    networkError.diagnostic = {
+      stage: "browser-network-or-cors",
+      requestUrl: String(url).replace(/[?#].*$/, "").slice(0, 500),
+      timeoutMs,
+      browserError: String(error?.message || error).slice(0, 1000),
+      rawResponse: "",
+    };
+    throw networkError;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function nativeHttpRequest(url, options = {}) {
+  if (options.body instanceof FormData) {
+    return nativeFetchRequest(url, options);
+  }
+  const plus = await waitForPlus();
+  if (!plus?.net?.XMLHttpRequest) {
+    return nativeFetchRequest(url, options);
   }
   return new Promise((resolve, reject) => {
     const xhr = new plus.net.XMLHttpRequest();
@@ -1893,12 +1919,18 @@ ${storyEvents.length
       .slice(-8)
       .map((message) => `${message.role === "user" ? "用户" : message.speaker || body.profile?.name || "角色"}：${message.content}`)
       .join("\n\n");
+    const actionStyle = ["观察型", "行动型", "幽默型", "谨慎型"].includes(body.actionStyle)
+      ? body.actionStyle
+      : "";
+    const style = ["冒险", "保守", "幽默"].includes(body.style) ? body.style : "";
     const content = await callChatModel(body, [
       {
         role: "system",
         content: `根据最近剧情生成恰好3条由用户第一人称直接发送的行动指令。每条8–32个中文字符，包含具体动词、对象或地点和下一步目的，三条方向不同，能立即推动剧情。当前有到期或临近日程时，至少一条必须处理该约定；待确认约定不能假装已经发生。只输出 JSON 字符串数组。
 
 示例输出（只示范格式）：["我带晚晚去钟楼检查异响","我让小雨先联系守卫封锁街口","我拿起钥匙，立刻检查门外脚印"]
+
+${actionStyle ? `用户常用行动倾向是“${actionStyle}”：观察型=先观察、询问、确认情况再行动；行动型=直接上手执行、推进任务、立即改变局面；幽默型=轻松俏皮、带玩笑感和生活气息；谨慎型=优先安全、留有余地、避免冲动冒险。本组选项应整体贴合这一倾向。` : ""}${style ? `本组选项额外风格：${style === "冒险" ? "更冒险——更大胆直接、敢于打破常规、行动更果断" : style === "保守" ? "更保守——更稳妥克制、优先保证安全与关系、行动更收敛" : "更幽默——更轻松俏皮、带玩笑感"}。风格与前面规则冲突时，规则优先，选项仍必须是有效行动指令。` : ""}
 
 ${scheduleContext}`,
       },
@@ -1976,17 +2008,13 @@ async function handleRole(body) {
     .slice(-30)
     .map((message) => `${message.role === "user" ? "用户" : message.speaker || "角色"}：${message.content}`)
     .join("\n\n");
-  const content = await callChatModel(body, [
-    {
-      role: "system",
-      content: `根据人物提示词、世界设定、长期记忆和对话整理角色档案。人物提示词是年龄、性格和身份的最高优先级来源；不要受旧版 age/personality 字段限制。区分实际年龄与外表年龄，并判断随剧情时间成长的规则。返回严格 JSON：
+  const system = `根据人物提示词、世界设定、长期记忆和对话整理角色档案。人物提示词是年龄、性格和身份的最高优先级来源；不要受旧版 age/personality 字段限制。区分实际年龄与外表年龄，并判断随剧情时间成长的规则。返回严格 JSON：
 {"name":"","gender":"女性、男性、非二元或未指定","relation":"","prompt":"200-800字行为设定","appearance":"80-300字稳定外观","derivedProfile":{"initialActualAge":18,"initialApparentAge":18,"agingRule":"normal、fixed、long-lived、ageless 或 unknown","corePersonality":"一句稳定核心性格","characterDevelopment":"当前性格发展与变化","anchorStoryDay":1}}
-normal 表示实际和外表每过365剧情天增加一岁；fixed 表示实际年龄增加但外表固定；long-lived 表示长生种实际年龄增加、外表缓慢或固定；ageless 表示两者均不变。资料不明确时用 null 或 unknown，不要强行改成成年人。`,
-    },
-    {
-      role: "user",
-      content: `当前剧情时间：${JSON.stringify(body.storyClock || {})}\n当前资料：${JSON.stringify(role).slice(0, 5000)}\n世界：${String(body.worldSetting || "").slice(0, 3000)}\n摘要：${String(body.storySummary || "").slice(0, 4000)}\n角色长期记忆：${JSON.stringify(body.roleMemory || {}).slice(0, 4000)}\n对话：${transcript}`,
-    },
+normal 表示实际和外表每过365剧情天增加一岁；fixed 表示实际年龄增加但外表固定；long-lived 表示长生种实际年龄增加、外表缓慢或固定；ageless 表示两者均不变。资料不明确时用 null 或 unknown，不要强行改成成年人。`;
+  const user = `当前剧情时间：${JSON.stringify(body.storyClock || {})}\n当前资料：${JSON.stringify(role).slice(0, 5000)}\n世界：${String(body.worldSetting || "").slice(0, 3000)}\n摘要：${String(body.storySummary || "").slice(0, 4000)}\n角色长期记忆：${JSON.stringify(body.roleMemory || {}).slice(0, 4000)}\n对话：${transcript}`;
+  const content = await callChatModel(body, [
+    { role: "system", content: system },
+    { role: "user", content: user },
   ], { temperature: 0.45, maxTokens: 1800 });
   const parsed = parseLooseJsonObject(content, (value) => typeof value?.prompt === "string");
   if (!parsed?.prompt) throw new Error("模型没有返回有效角色档案");
@@ -2818,88 +2846,70 @@ function clearMobileImageReferences({ jobId = "", imageUrl = "", targetId = "", 
   return changed;
 }
 
-async function rewriteRejectedPrompt(prompt, rejection) {
-  const body = { provider: "deepseek" };
-  return callChatModel(body, [
-    {
-      role: "system",
-      content: `上游图片模型拒绝了成年人物画面。保留人物身份、年龄、性别、地点、动作、关系、道具、灯光和镜头，仅把被拒绝部分调整为完整成年时装、自然比例和电影摄影表达。直接输出250–650字中文提示词。`,
-    },
-    { role: "user", content: `原提示词：${prompt}\n拒绝信息：${String(rejection).slice(0, 600)}` },
-  ], { temperature: 0.3, maxTokens: 1000 });
-}
-
 async function runImageJob(id, body) {
   const config = getMobileApiConfig();
   let prompt = String(body.prompt || "").trim().slice(0, 1200);
-  const editMode = body.kind === "visual-state";
+  const editMode = body.kind === "visual-state" || Boolean(body.referenceImage?.imageUrl);
   updateImageJob(id, { status: "running", statusMessage: "正在调用图片模型", attempt: 1 });
   try {
-    const baseImageBlob = editMode ? await localImageBlob(resolveRoleBaseImage(body)) : null;
+    const baseImageBlob = editMode ? await localImageBlob(body.referenceImage?.imageUrl || resolveRoleBaseImage(body)) : null;
     let result;
-    let rewritten = false;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      updateImageJob(id, { attempt, prompt, rewritten });
-      let response;
-      if (editMode) {
-        const formData = new FormData();
-        formData.append("model", body.imageModel || downstream.image?.defaultModel || "gpt-image-2");
-        formData.append("prompt", prompt);
-        formData.append("size", downstream.image?.portraitSize || "1024x1536");
-        formData.append("quality", "standard");
-        formData.append("response_format", "url");
-        formData.append("output_format", "png");
-        formData.append("image", baseImageBlob, `${body.targetId || "character"}-base.png`);
-        response = await nativeHttpRequest(`${config.imageBaseUrl}/images/edits`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.imageKey}`,
-          },
-          body: formData,
-          timeout: IMAGE_REQUEST_TIMEOUT_MS,
-        });
-      } else {
-        response = await nativeHttpRequest(`${config.imageBaseUrl}${downstream.image?.endpoint || "/images/generations"}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.imageKey}`,
-          },
-          body: JSON.stringify({
-            model: body.imageModel || downstream.image?.defaultModel || "gpt-image-2",
-            prompt,
-            n: 1,
-            size: body.kind === "stage-background"
-              ? downstream.image?.landscapeSize || "1536x1024"
-              : downstream.image?.portraitSize || "1024x1536",
-            quality: "standard",
-            response_format: "url",
-            output_format: "png",
-          }),
-          timeout: IMAGE_REQUEST_TIMEOUT_MS,
-        });
-      }
-      if (response.ok) {
-        result = parseJsonText(response.text);
-        break;
-      }
-      const retryable = response.status === 400
-        && /(?:不能|无法|抱歉|拒绝|安全|审核|违规|sexual|nudity|moderation|safety)/i.test(response.text);
-      if (!retryable || attempt >= 3) {
-        throw modelResponseError(
-          `图片生成失败（${response.status}）：${response.text.slice(0, 360)}`,
-          response,
-          "image-upstream-http",
-          {
-            kind: body.kind,
-            model: body.imageModel || downstream.image?.defaultModel || "gpt-image-2",
-            attempt,
-          },
-        );
-      }
-      prompt = (await rewriteRejectedPrompt(prompt, response.text)).slice(0, 1200);
-      rewritten = true;
+    const rewritten = false;
+    let response;
+    if (editMode) {
+      const editPrompt = body.kind === "character" && body.referenceImage?.imageUrl
+        ? `图片1为参考基底图，必须保持图片1中的同一个成年人物，脸型、五官、发型、发色、瞳色、体态和服装结构完全一致，不得重新设计人物；只按提示词要求改变动作、表情、服装状态或场景。${prompt}`.slice(0, 1200)
+        : prompt;
+      const formData = new FormData();
+      formData.append("model", body.imageModel || downstream.image?.defaultModel || "gpt-image-2");
+      formData.append("prompt", editPrompt);
+      formData.append("size", downstream.image?.portraitSize || "1024x1536");
+      formData.append("quality", "standard");
+      formData.append("response_format", "url");
+      formData.append("output_format", "png");
+      formData.append("image", baseImageBlob, `${body.targetId || "character"}-base.png`);
+      response = await nativeHttpRequest(`${config.imageBaseUrl}/images/edits`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.imageKey}`,
+        },
+        body: formData,
+        timeout: IMAGE_REQUEST_TIMEOUT_MS,
+      });
+    } else {
+      response = await nativeHttpRequest(`${config.imageBaseUrl}${downstream.image?.endpoint || "/images/generations"}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.imageKey}`,
+        },
+        body: JSON.stringify({
+          model: body.imageModel || downstream.image?.defaultModel || "gpt-image-2",
+          prompt,
+          n: 1,
+          size: body.kind === "stage-background"
+            ? downstream.image?.landscapeSize || "1536x1024"
+            : downstream.image?.portraitSize || "1024x1536",
+          quality: "standard",
+          response_format: "url",
+          output_format: "png",
+        }),
+        timeout: IMAGE_REQUEST_TIMEOUT_MS,
+      });
     }
+    if (!response.ok) {
+      throw modelResponseError(
+        `图片生成失败（${response.status}）：${response.text.slice(0, 360)}`,
+        response,
+        "image-upstream-http",
+        {
+          kind: body.kind,
+          model: body.imageModel || downstream.image?.defaultModel || "gpt-image-2",
+          attempt: 1,
+        },
+      );
+    }
+    result = parseJsonText(response.text);
     const remoteUrl = result?.data?.[0]?.url;
     if (!remoteUrl) throw new Error("图片接口没有返回下载地址");
     const filename = `${body.kind === "visual-state" ? "visual-state" : body.kind === "stage-background" ? "stage-background" : body.kind === "character" ? "character" : "scene"}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}.png`;
@@ -2915,6 +2925,8 @@ async function runImageJob(id, body) {
         ? downstream.image?.landscapeSize || "1536x1024"
         : downstream.image?.portraitSize || "1024x1536",
       sourceMode: editMode ? "image-edit" : "text-generation",
+      referenceImageUrl: body.referenceImage?.imageUrl || "",
+      referenceImageJobId: body.referenceImage?.jobId || "",
     });
     if (body.kind === "character" && body.targetId && !body.visualStateId) {
       const settings = loadSettings();
@@ -3020,6 +3032,15 @@ async function handleImage(body, method, url) {
     }
     const config = getMobileApiConfig();
     if (!config.imageKey) return jsonResponse({ error: "请先在 App API 设置中填写图片 Key" }, 503);
+    const referenceImage = body.referenceImage && typeof body.referenceImage === "object"
+      ? {
+          imageUrl: String(body.referenceImage.imageUrl || "").slice(0, 2000),
+          jobId: String(body.referenceImage.jobId || "").slice(0, 120),
+        }
+      : null;
+    if (referenceImage?.imageUrl && !/^(?:asset:\/\/|data:image\/|file:|_doc\/|_downloads\/|\/storage\/)/i.test(referenceImage.imageUrl)) {
+      return jsonResponse({ error: "参考图地址无效，只能使用本机已保存的图片" }, 400);
+    }
     const now = new Date().toISOString();
     const job = {
       id: `mobile-image-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -3036,6 +3057,8 @@ async function handleImage(body, method, url) {
       attempt: 0,
       maxAttempts: 3,
       rewritten: false,
+      referenceImageUrl: referenceImage?.imageUrl || "",
+      referenceImageJobId: referenceImage?.jobId || "",
       archive: body.archive || {},
       request: {
         ...body,
@@ -3284,11 +3307,40 @@ async function routeMobileRequest(path, method, body, url) {
     });
   }
   if (path === "/api/image-models") {
+    const config = getMobileApiConfig();
+    let discovered = [];
+    if (config.imageKey && config.imageBaseUrl) {
+      try {
+        const response = await nativeHttpRequest(`${config.imageBaseUrl}/models`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${config.imageKey}` },
+          timeout: 45000,
+        });
+        if (response.ok) {
+          const result = parseJsonText(response.text);
+          discovered = (Array.isArray(result?.data) ? result.data : [])
+            .map((item) => String(item?.id || "").trim())
+            .filter(Boolean);
+        }
+      } catch {}
+    }
+    const patterns = (Array.isArray(downstream.image?.includePatterns) ? downstream.image.includePatterns : [])
+      .map((pattern) => {
+        try { return new RegExp(pattern, "i"); } catch { return null; }
+      })
+      .filter(Boolean);
+    const isImageModel = (id) => patterns.some((regex) => regex.test(id))
+      || /(?:image|imagine|flux|dall)/i.test(id);
+    const models = [...new Set([
+      ...(downstream.image?.models || []),
+      ...discovered.filter(isImageModel),
+    ])];
     return jsonResponse({
-      models: downstream.image?.models || ["gpt-image-2"],
+      models: models.length ? models : ["gpt-image-2"],
       defaultModel: downstream.image?.defaultModel || "gpt-image-2",
-      source: "mobile-config",
-      authConfigured: Boolean(getMobileApiConfig().imageKey),
+      source: discovered.length ? "direct-api" : "mobile-config",
+      discoveryError: "",
+      authConfigured: Boolean(config.imageKey),
     });
   }
   if (path === "/api/chat") return handleChat(body);

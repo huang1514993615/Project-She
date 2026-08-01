@@ -163,6 +163,7 @@ const imageJobRequests = new Map();
 let activeImageJobCount = 0;
 let imageJobsPersistQueue = Promise.resolve();
 let modelsCatalogCache = null;
+let imageModelsCatalogCache = null;
 let appUpdateBuildPromise = null;
 mkdirSync(store.dataDirectory, { recursive: true });
 const applicationLog = openSync(serverLogFile, "a");
@@ -481,73 +482,10 @@ async function rewriteScenePrompt(body) {
   const visualPlan = normalizeImagePromptLanguage(
     formatImagePromptResponse(content, "scene"),
   );
+  const style = String(body?.style || "").trim().slice(0, 200);
   return `${visualPlan.trim().slice(0, 1120)}
 
-人物正面或正面三分之二角度，面部与眼神清晰可见。竖版 9:16，自然写实电影摄影，手部结构与人体比例自然。`;
-}
-
-function isRetryableImageRefusal(error) {
-  if (Number(error?.statusCode) !== 400) return false;
-  const detail = String(error?.message || "");
-  return /(?:不能|无法|抱歉|拒绝|安全|审核|违规|性化|裸露|透视|胸部|sexual|nudity|moderation|safety)/i.test(detail);
-}
-
-async function rewriteRejectedImagePrompt(body, prompt, rejection, attempt) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw imageError("图片被拒绝，且对话模型未配置，无法自动调整提示词", 502, "IMAGE_REWRITE_UNAVAILABLE");
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
-  const upstream = await externalFetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
-      messages: [
-        {
-          role: "system",
-          content: `你是图片提示词编辑。上游图片模型拒绝了一个成年人物场景，请把原提示词改写成可正常生成的成年时装或电影摄影画面。
-
-保留人物身份、年龄、地点、时间、发型、面容、主要动作、人物关系、道具、灯光、镜头和情绪；只调整容易触发拒绝的裸露、透明暴露、性化身体强调或性行为表达。用合身但完整不透的服装、自然人体比例、电影感姿势和含蓄情绪替代，不要增加未成年人语义。
-
-不要照抄上游拒绝信息里的替代文案，也不要解释、道歉或列规则。直接输出一条 250–650 字中文提示词，内容具体、可视化、前后空间关系准确，9:16 竖图。`,
-        },
-        {
-          role: "user",
-          content: `这是第 ${attempt} 次图片调用后的拒绝。请独立改写原提示词。
-
-原提示词：
-${String(prompt || "").slice(0, 1200)}
-
-上游拒绝信息（仅用于判断需要调整的部分，不要复制其建议）：
-${String(rejection || "").slice(0, 700)}
-
-图片类型：${body?.kind === "character" ? "人物形象" : "当前剧情场景"}`,
-        },
-      ],
-      stream: false,
-      temperature: 0.35,
-      max_tokens: 1000,
-      thinking: { type: "disabled" },
-    }),
-    signal: AbortSignal.timeout(90000),
-  });
-  if (!upstream.ok) {
-    const detail = await upstream.text();
-    throw imageError(`图片提示词自动调整失败（${upstream.status}）：${detail.slice(0, 240)}`, 502, "IMAGE_REWRITE_FAILED");
-  }
-  const result = await upstream.json();
-  const content = result?.choices?.[0]?.message?.content;
-  const rewritten = normalizeImagePromptLanguage(String(content || "")
-    .replace(/^```(?:text)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim())
-    .slice(0, 1200);
-  if (rewritten.length < 40) {
-    throw imageError("对话模型没有返回有效的替代图片提示词", 502, "IMAGE_REWRITE_EMPTY");
-  }
-  return rewritten;
+人物正面或正面三分之二角度，面部与眼神清晰可见。竖版 9:16，${style ? `${style}风格` : "自然写实电影摄影"}，手部结构与人体比例自然。`;
 }
 
 async function rewriteCharacterPrompt(body) {
@@ -741,6 +679,41 @@ async function loadUpstreamModelCatalog() {
   return value;
 }
 
+async function loadUpstreamImageModelCatalog() {
+  if (imageModelsCatalogCache && Date.now() - imageModelsCatalogCache.updatedAt < 5 * 60 * 1000) {
+    return imageModelsCatalogCache.value;
+  }
+  const value = {
+    ids: [],
+    discoveryError: "",
+    authConfigured: Boolean(downstreamImageApiKey),
+    updatedAt: new Date().toISOString(),
+  };
+  if (downstreamImageApiKey) {
+    try {
+      const upstream = await externalFetch(`${imageBaseUrl}/models`, {
+        headers: { Authorization: `Bearer ${downstreamImageApiKey}` },
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!upstream.ok) {
+        const detail = await upstream.text();
+        throw new Error(`图片模型列表请求失败（${upstream.status}）：${detail.slice(0, 200)}`);
+      }
+      const result = await upstream.json();
+      value.ids = cleanModelList(
+        (Array.isArray(result?.data) ? result.data : []).map((item) => item?.id),
+      );
+    } catch (error) {
+      value.discoveryError = error instanceof Error ? error.message : "fetch failed";
+      log(`Image model catalog discovery failed: ${value.discoveryError}`);
+    }
+  } else {
+    value.discoveryError = "图片 API Key 尚未配置";
+  }
+  imageModelsCatalogCache = { updatedAt: Date.now(), value };
+  return value;
+}
+
 async function handleChatModels(request, response) {
   if (request.method !== "GET") {
     sendJson(response, 405, { error: "Method not allowed" });
@@ -767,25 +740,25 @@ async function handleImageModels(request, response) {
     sendJson(response, 405, { error: "Method not allowed" });
     return;
   }
-  const catalog = await loadUpstreamModelCatalog();
+  const catalog = await loadUpstreamImageModelCatalog();
+  const discovered = catalog.ids.filter(isImageModelId);
   const models = [...new Set([
     ...configuredImageModels,
-    ...(aiConfig.image?.discoverModels === true ? catalog.ids.filter(isImageModelId) : []),
+    ...discovered,
   ])];
   sendJson(response, 200, {
     models,
     defaultModel: models.includes(defaultImageModel) ? defaultImageModel : models[0] || defaultImageModel,
     baseUrl: imageBaseUrl,
-    source: "config",
-    discoveryError: "",
-    authConfigured: Boolean(downstreamImageApiKey),
+    source: discovered.length ? "api+config" : "config",
+    discoveryError: catalog.discoveryError,
+    authConfigured: catalog.authConfigured,
     updatedAt: catalog.updatedAt,
   });
 }
 
 function buildLocalCharacterPrompt(body) {
   const role = body?.role || {};
-  const name = String(role.name || "角色").trim().slice(0, 20);
   const age = Math.min(9999, Math.max(0, Number(role.age) || 24));
   const gender = resolveRoleGender(role);
   const personality = String(role.personality || "自然、友善").trim().slice(0, 100);
@@ -804,7 +777,7 @@ function buildLocalCharacterPrompt(body) {
     .slice(-3)
     .map((message) => message.content.replace(/\s+/g, " ").slice(0, 260))
     .join("；");
-  return normalizeImagePromptLanguage(`整体：${name}，资料年龄${age}岁，${gender === "未指定" ? "性别未指定" : gender}，与用户关系为${relation}，气质为${personality}；实际年龄与外表年龄不一致时，以稳定外观明确写出的年龄观感为准。面容五官与稳定外观：${appearance || "根据角色自己的身份设计自然可信的面容、眼睛、体态和标志特征，不混入其他人物外观"}。人物连续性：${memoryText || "保持现有人物身份、关系和标志物"}。服装与标志物：完整落实稳定外观中的基础服装、发饰、首饰与随身物，再根据当前事件补充材质、褶皱、临时状态和受光。姿态与表情：依据当前剧情“${latest || "角色处于自己的日常空间"}”定格一个动作，面部、眼神、发型、标志配饰和双手清晰可见，不照抄对白。场景：${String(body?.worldSetting || body?.storySummary || "沿用人物所属世界与最近剧情").replace(/\s+/g, " ").slice(0, 420)}。构图：正面或正面三分之二角度，全身或膝上肖像，人物为画面绝对主体，环境和能力效果不超过画面信息的五分之一，低畸变人像镜头，浅景深，9:16竖图，自然写实电影摄影。`)
+  return normalizeImagePromptLanguage(`整体：目标人物，资料年龄${age}岁，${gender === "未指定" ? "性别未指定" : gender}，与用户关系为${relation}，气质为${personality}；实际年龄与外表年龄不一致时，以稳定外观明确写出的年龄观感为准。面容五官与稳定外观：${appearance || "根据角色自己的身份设计自然可信的面容、眼睛、体态和标志特征，不混入其他人物外观"}。人物连续性：${memoryText || "保持现有人物身份、关系和标志物"}。服装与标志物：完整落实稳定外观中的基础服装、发饰、首饰与随身物，再根据当前事件补充材质、褶皱、临时状态和受光。姿态与表情：依据当前剧情“${latest || "角色处于自己的日常空间"}”定格一个动作，面部、眼神、发型、标志配饰和双手清晰可见，不照抄对白。场景：${String(body?.worldSetting || body?.storySummary || "沿用人物所属世界与最近剧情").replace(/\s+/g, " ").slice(0, 420)}。构图：正面或正面三分之二角度，全身或膝上肖像，人物为画面绝对主体，环境和能力效果不超过画面信息的五分之一，低畸变人像镜头，浅景深，9:16竖图，自然写实电影摄影。`)
     .slice(0, 1100);
 }
 
@@ -939,21 +912,10 @@ async function generateImageFile(body) {
 }
 
 async function generateImageWithRetry(body, onAttempt = null) {
-  const maxAttempts = 3;
-  let prompt = String(body?.prompt || "").trim().slice(0, 1200);
-  let rewritten = false;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (onAttempt) await onAttempt({ attempt, maxAttempts, prompt, rewritten });
-    try {
-      const result = await generateImageFile({ ...body, prompt });
-      return { ...result, prompt, attempt, maxAttempts, rewritten };
-    } catch (error) {
-      if (!isRetryableImageRefusal(error) || attempt >= maxAttempts) throw error;
-      prompt = await rewriteRejectedImagePrompt(body, prompt, error?.message, attempt);
-      rewritten = true;
-    }
-  }
-  throw imageError("图片生成在三次尝试后仍未成功", 400, "IMAGE_RETRY_EXHAUSTED");
+  const prompt = String(body?.prompt || "").trim().slice(0, 1200);
+  if (onAttempt) await onAttempt({ attempt: 1, maxAttempts: 1, prompt, rewritten: false });
+  const result = await generateImageFile({ ...body, prompt });
+  return { ...result, prompt, attempt: 1, maxAttempts: 1, rewritten: false };
 }
 
 function persistImageJobs() {
@@ -1203,7 +1165,7 @@ async function runImageJob(jobId, body) {
     job.status = "failed";
     job.error = error instanceof Error ? error.message : "图片生成失败";
     job.code = error?.code || "IMAGE_JOB_FAILED";
-    job.statusMessage = job.attempt >= job.maxAttempts ? "三次调用均未成功，已停止" : "生成任务已停止";
+    job.statusMessage = "生成失败，未自动重试，请查看错误详情";
     job.updatedAt = new Date().toISOString();
     log(`Image job ${jobId} failed: ${job.error}`);
   }

@@ -103,6 +103,10 @@ ${storyEvents.length
   ? `有效约定：${storyEvents.map((event) => `${event.day === null ? "日期待确认" : formatStoryMoment({ ...storyClock, day: event.day, segment: event.segment })}·${event.title}·${event.status}`).join("；")}`
   : "当前没有有效约定。"} `;
   const age = Math.min(80, Math.max(18, Number(profile.age) || 24));
+  const actionStyle = ["观察型", "行动型", "幽默型", "谨慎型"].includes(body.actionStyle)
+    ? body.actionStyle
+    : "";
+  const style = ["冒险", "保守", "幽默"].includes(body.style) ? body.style : "";
   const messages = (Array.isArray(body.messages) ? body.messages : [])
     .filter((item: ChatMessage) =>
       item
@@ -174,7 +178,9 @@ ${scheduleContext}
 5. 不生成“然后呢”“你觉得呢”“接下来做什么”“再说详细一点”“继续刚才剧情”等被动追问，也不要只表达情绪或等待角色安排。
 6. 选项末尾不用问号；保持当前人物关系和情节连续，不总结、不解释、不添加序号。
 7. 当前有到期或临近日程时，至少一条选项必须用于处理该约定；待确认约定只能给出“确认、修改或暂不确定”的动作，不能假装已经发生。
-8. 只输出 JSON 字符串数组，例如 ["我拿起桌上的钥匙，带她立刻出门","让小雨先去车站打听那个人的消息","我推开书房暗门，检查刚出现的脚印"]。`,
+8. 只输出 JSON 字符串数组，例如 ["我拿起桌上的钥匙，带她立刻出门","让小雨先去车站打听那个人的消息","我推开书房暗门，检查刚出现的脚印"]。
+
+${actionStyle ? `用户常用行动倾向是“${actionStyle}”：观察型=选项偏向先观察、询问、确认情况再行动；行动型=选项直接上手执行、推进任务、立即改变局面；幽默型=选项更轻松俏皮、带玩笑感和生活气息；谨慎型=选项优先安全、留有余地、避免冲动冒险。本组选项应整体贴合这一倾向。` : ""}${style ? `本组选项额外风格：${style === "冒险" ? "更冒险——更大胆直接、敢于打破常规、行动更果断" : style === "保守" ? "更保守——更稳妥克制、优先保证安全与关系、行动更收敛" : "更幽默——更轻松俏皮、带玩笑感" }。风格与上面 1–8 条规则冲突时，规则优先，选项仍必须是有效行动指令。` : ""}`,
         },
         {
           role: "user",

@@ -1,7 +1,32 @@
 import { parseLooseJsonObject } from "./loose-json.js";
+import { formatStoryMoment, normalizeStoryClock } from "./story-time.js";
 
 function text(value, limit = 1200) {
-  return String(value || "").trim().slice(0, limit);
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, limit);
+}
+
+function fieldText(value, limit = 1200) {
+  if (typeof value === "string") return value.trim();
+  if (value === null || value === undefined) return "";
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => fieldText(item, 300))
+      .filter(Boolean)
+      .join("；")
+      .slice(0, limit);
+  }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, item]) => {
+        const inner = fieldText(item, 200);
+        return inner ? `${key}：${inner}` : "";
+      })
+      .filter(Boolean)
+      .join("；")
+      .slice(0, limit);
+  }
+  return String(value).slice(0, limit);
 }
 
 function roleList(profile = {}, ensemble = {}) {
@@ -26,8 +51,8 @@ function roleMemoryText(memory = {}) {
     memory.stableIdentity && `稳定身份：${text(memory.stableIdentity, 700)}`,
     memory.relationshipMemory && `关系记忆：${text(memory.relationshipMemory, 700)}`,
     memory.importantEvents && `关键经历：${text(memory.importantEvents, 700)}`,
-    memory.currentStatus && `当前状态：${text(memory.currentStatus, 500)}`,
-    memory.lastKnownScene && `最后位置：${text(memory.lastKnownScene, 500)}`,
+    memory.currentStatus && `历史状态快照（仅背景参考，可能过时，不代表此刻）：${text(memory.currentStatus, 500)}`,
+    memory.lastKnownScene && `历史位置快照（仅背景参考，可能过时，不代表此刻）：${text(memory.lastKnownScene, 500)}`,
     memory.commitments && `承诺与目标：${text(memory.commitments, 500)}`,
   ].filter(Boolean).join("；");
 }
@@ -75,21 +100,32 @@ function likelyCastNames(roles, messages = []) {
 }
 
 const continuityPriority = `【视觉资料优先级】
-1. 人物资料里的姓名、性别、稳定外观和不可变配饰；
-2. 该人物的长期记忆、关系与图片专用偏好；
-3. 世界设定与长期剧情摘要；
-4. 最近对话只负责确定此刻地点、在场人物、服装临时状态、动作、情绪和事件。
+1. 人物资料里的姓名、性别和稳定外观中的不可变部分（脸型、五官、瞳色、发型、体态、肤色、标志配饰）——永远保持不变；
+2. 最近对话是此刻状态的唯一依据——决定当前场景、地点、在场人物、动作、情绪和事件；所有"此刻/现在/当前"判断只准依据最近对话，不得使用人物档案、长期记忆或剧情摘要中的旧状态；
+3. 该人物的长期记忆、关系与图片专用偏好——只补充人物背景，不改变当前瞬间；其中"历史状态快照""历史位置快照"仅作背景参考，可能过时，绝不能当成当前状态；
+4. 服装与衣物以最近对话为准：稳定外观里的基础服装只作为同款基底，当前瞬间可以穿脱、换衣、卷起衣摆、沾湿、破损或增减配饰，但脸型、五官、发型和体态不允许被改。
 
-若最近对话省略发型、瞳色、体态、服装基础结构或标志物，必须从稳定外观补回，绝不能因为对话没提到就省略，也不能把其他角色的外观移植过来。实际年龄与外表年龄不一致时分别保留，不擅自改写；任何外表明显未成年的角色只采用符合其外表年龄的非性化服装、姿态和镜头。`;
-
+若最近对话省略发型、瞳色、体态或标志物，必须从稳定外观补回，绝不能因为对话没提到就省略，也不能把其他角色的外观移植过来。实际年龄与外表年龄不一致时分别保留，不擅自改写；任何外表明显未成年的角色只采用其符合外表年龄的非性化服装、姿态和镜头。`;
+const visualOnlyOutputRule = `【输出画面语言】
+最终画面描述中禁止出现剧情自定义的人名（如“晚晚”“小雨”）和专有地名，一律替换为可直接画出来的视觉特征：人物用性别与年龄观感、发型、脸型、眼睛与瞳色、体态、服装结构与材质颜色、标志配饰来描述；地点用建筑材质、年代与风格、空间陈设、灯光和天气痕迹来描述。只输出视觉语言，不输出剧情称谓。`;
 export function buildImagePromptRequest(body = {}, kind = "scene") {
   const roles = roleList(body.profile || {}, body.ensemble || {});
   const memories = body.roleMemories && typeof body.roleMemories === "object"
     ? body.roleMemories
     : {};
   const transcript = recentTranscript(body.messages);
-  const world = text(body.worldSetting, 6000) || "沿用最近剧情已经形成的世界规则。";
-  const summary = text(body.storySummary, 6000) || "以最近对话为准。";
+  const clock = normalizeStoryClock(body.storyClock);
+  const momentAnchor = `【当前剧情时刻】
+${formatStoryMoment(clock)}${clock.location ? `，地点：${clock.location}` : ""}
+
+画面中"此刻"的场景、地点、在场人物、服装临时状态、动作和事件，只以【最近对话】为准。人物档案、长期记忆和剧情摘要里出现的任何旧场景、旧位置、旧状态都只是背景，不得带进"此刻"的画面。`;
+  const style = text(body.style, 200);
+  const styleConstraint = style
+    ? `【画面整体风格】
+${style}。风格只作用于画风、色彩、光影、材质、笔触与镜头语言；所有入镜人物的姓名、脸型、眼睛、瞳色、发型、体态、基础服装和标志配饰必须保持稳定，不能被风格改写。
+
+`
+    : "";
 
   if (kind === "character") {
     const role = body.role || {};
@@ -112,6 +148,8 @@ export function buildImagePromptRequest(body = {}, kind = "scene") {
 
 ${continuityPriority}
 
+${styleConstraint}${visualOnlyOutputRule}
+
 硬性要求：
 - 不要输出脸型、五官、瞳色、发型、身形和固定配饰；程序会直接使用稳定外观。
 - 最近对话只提取该人物此刻确实发生的服装临时状态、姿势、表情、地点、灯光和镜头，不把台词、对白、音效、心理解释或剧情段落照抄进结果。
@@ -123,19 +161,15 @@ ${continuityPriority}
 不要解释规则，不要输出对白，不要写成故事。`,
       user: `${continuityPriority}
 
+${momentAnchor}
+
 【目标人物完整档案】
 ${target}
 
-【世界设定】
-${world}
-
-【长期剧情摘要】
-${summary}
-
-【最近相关对话——仅作为当前状态证据】
+【当前状态的唯一来源——最近相关对话（最新对话最后，越靠后越是"现在"）】
 ${transcript || "暂无；请以完整人物档案设计稳定形象。"}
 
-现在只输出目标人物此刻画面的动态 JSON。稳定外观由程序直接拼接，不要在任何字段重复外貌；不要只照搬最后一句对话的动作。`,
+上面人物档案和长期记忆中的"历史状态快照""历史位置快照"都只是背景参考，可能过时。本人物此刻的场景、地点、动作、服装临时状态、情绪只依据上面这段最近对话判断，不得沿用历史状态快照中的旧场景。现在只输出目标人物此刻画面的动态 JSON。稳定外观由程序直接拼接，不要在任何字段重复外貌；不要只照搬最后一句对话的动作。`,
     };
   }
 
@@ -149,6 +183,8 @@ ${transcript || "暂无；请以完整人物档案设计稳定形象。"}
 
 ${continuityPriority}
 
+${styleConstraint}${visualOnlyOutputRule}
+
 硬性要求：
 - 只选最近剧情中确实在场、正在行动或被镜头直接捕捉的人物；“可能在场人物”只是候选，不得把整个人物库都塞入画面。
 - 对每位入镜人物，必须先明确写出姓名、外表年龄或年龄观感、性别、脸部与眼睛、发型、体态、基础服装、标志配饰，再写此刻姿势与互动。稳定人物特征不得被省略。
@@ -160,22 +196,18 @@ ${continuityPriority}
 {"scene":"地点、时间、天气、正在发生的单一瞬间与空间基调","cast":"逐一写入镜人物姓名、年龄观感、性别、位置和画面范围","appearance":"逐一完整写脸型、眼睛、瞳色、发型、体态、稳定服装与标志配饰","wardrobe":"逐一写当前服装结构、材质、颜色、临时状态、褶皱与受光","pose":"逐一写朝向、重心、肩颈、四肢、双手和道具","interaction":"人物距离、视线、接触方式和同一瞬间的因果关系","expression":"逐一写可见微表情与视线方向，不写内心独白","environment":"前中后景、家具物品、天气痕迹与有限的能力效果","lighting":"主辅光方向、色温、高光、阴影和色彩关系","camera":"正面或正面三分之二视角、景别、机位、焦段感、景深和9:16构图"}`,
     user: `${continuityPriority}
 
+${momentAnchor}
+
 【完整人物视觉档案库】
 ${roster || "暂无固定人物资料。"}
 
 【最近内容推断的可能在场人物】
 ${castNames.length ? castNames.join("、") : "未明确，请只从最近对话谨慎判断。"}
 
-【世界设定】
-${world}
-
-【长期剧情摘要】
-${summary}
-
-【最近对话——仅作为当前场景证据】
+【当前状态的唯一来源——最近对话（最新对话在最后，越靠后越是"现在"）】
 ${transcript || "暂无。"}
 
-请先在内部确定“谁在画面里、每个人稳定长什么样、此刻发生了什么”，再输出 JSON。画面必须让熟悉角色的人凭外观和标志物立即认出她们，而不是只看到一段剧情动作。`,
+请先在内部确定“谁在画面里、每个人稳定长什么样、此刻发生了什么”，再输出 JSON。人物档案和长期记忆里的“历史状态快照”“历史位置快照”只是背景，可能过时；此刻的场景、地点、动作、在场人物、服装临时状态只以这段最近对话为准。画面必须让熟悉角色的人凭外观和标志物立即认出她们，而不是只看到一段剧情动作。`,
   };
 }
 
@@ -200,7 +232,7 @@ export function formatImagePromptResponse(content, kind = "scene", request = {})
     ];
     const parts = fields
       .map(([key, label, limit]) => {
-        const value = text(parsed?.[key], limit)
+        const value = fieldText(parsed?.[key], limit)
           .replace(/[\r\n]+/g, " ")
           .replace(/[“”"'`]/g, "")
           .replace(/\s+/g, " ")
@@ -210,8 +242,7 @@ export function formatImagePromptResponse(content, kind = "scene", request = {})
       .filter(Boolean);
     if (parts.length < 4) throw new Error("对话模型返回的人物动态细节不足");
     return [
-      `人物：${text(request.targetName, 30) || "目标人物"}（${text(request.targetGender, 20) || "性别未指定"}）`,
-      `稳定外观：${text(request.fixedAppearance, 900) || "使用已保存的人物稳定外观"}`,
+      `目标人物（${text(request.targetGender, 20) || "性别未指定"}）稳定外观：${text(request.fixedAppearance, 900) || "使用已保存的人物稳定外观"}`,
       ...parts,
       "人物身份、发型、五官、体态、固定服装结构、发饰与标志配饰全部保持稳定，面部和双手清楚，身体结构自然",
     ].join("。");
@@ -236,7 +267,7 @@ export function formatImagePromptResponse(content, kind = "scene", request = {})
   ];
   const parts = fields
     .map(([key, label, limit]) => {
-      const value = text(parsed?.[key], limit)
+      const value = fieldText(parsed?.[key], limit)
         .replace(/[\r\n]+/g, " ")
         .replace(/[“”"'`]/g, "")
         .replace(/【[^】]{0,20}】/g, "")
