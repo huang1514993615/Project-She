@@ -16,8 +16,8 @@ export const DEFAULT_SYSTEM_PROMPT = `你在互动剧情中扮演“{{name}}”�
 export function renderSystemPrompt(template, profile = {}) {
   const age = Math.min(80, Math.max(18, Number(profile.age) || 24));
   return String(template || DEFAULT_SYSTEM_PROMPT)
-    .replaceAll("{{name}}", profile.name || "晚晚")
+    .replaceAll("{{name}}", profile.name || "岚")
     .replaceAll("{{age}}", String(age))
-    .replaceAll("{{personality}}", profile.personality || "娇小可爱")
-    .replaceAll("{{relation}}", profile.relation || "妻子");
+    .replaceAll("{{personality}}", profile.personality || "沉稳可靠")
+    .replaceAll("{{relation}}", profile.relation || "旅伴");
 }

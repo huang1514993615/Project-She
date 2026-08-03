@@ -1,0 +1,689 @@
+/* 场景相册、角色相册与图片详情查看器。 */
+.album-tabs {
+  max-width: 980px;
+  margin: 24px auto 0;
+  padding: 5px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  background: rgba(229, 224, 219, 0.58);
+  border-radius: 14px;
+}
+
+.album-tabs button {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: #77747a;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.album-tabs button.active {
+  color: var(--ink);
+  background: var(--white);
+  box-shadow: 0 5px 18px rgba(27, 27, 35, 0.07);
+}
+
+.album-tabs em {
+  min-width: 22px;
+  padding: 2px 7px;
+  color: var(--coral);
+  background: rgba(236, 114, 93, 0.11);
+  border-radius: 999px;
+  font-size: 9px;
+  font-style: normal;
+}
+
+.character-album-guide {
+  max-width: 980px;
+  margin: 24px auto 0;
+  padding: 20px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  background: linear-gradient(135deg, #fff7f3, #fffdf9);
+  border: 1px solid rgba(236, 114, 93, 0.2);
+  border-radius: 18px;
+}
+
+.character-album-guide h3 {
+  margin: 5px 0 6px;
+  font-family: "Songti SC", "SimSun", serif;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.character-album-guide p {
+  margin: 0;
+  color: #77747a;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.character-album-guide > button {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  color: white;
+  background: var(--coral);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.album-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.album-grid .image-job-card {
+  margin: 0;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+  background: #fbfaf8;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+}
+
+.album-image-button {
+  position: relative;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  background: #ece9e4;
+  border: 0;
+  cursor: zoom-in;
+}
+
+.album-image-button img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  display: block;
+  object-fit: cover;
+  transition: transform 220ms ease;
+}
+
+.album-image-button > span {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 5px 9px;
+  color: white;
+  background: rgba(18, 19, 28, 0.68);
+  border-radius: 999px;
+  opacity: 0;
+  font-size: 9px;
+  transition: opacity 160ms ease;
+}
+
+.album-image-button:hover img {
+  transform: scale(1.025);
+}
+
+.album-image-button:hover > span,
+.album-image-button:focus-visible > span {
+  opacity: 1;
+}
+
+.album-grid .image-job-placeholder {
+  width: 100%;
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+}
+
+.album-grid .image-job-copy {
+  padding: 14px;
+}
+
+.album-grid .image-job-copy > div b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-grid .image-job-copy > p:first-of-type {
+  color: #8d898e;
+  font-size: 10px;
+}
+
+.album-grid .album-summary {
+  min-height: 4.8em;
+  display: -webkit-box;
+  overflow: hidden;
+  color: #55525a;
+  font-size: 11px;
+  line-height: 1.6;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.album-grid .image-job-copy > small {
+  display: block;
+  margin-top: 5px;
+}
+
+.album-prompt-copy {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.album-preview-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  padding: 28px;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 11, 17, 0.9);
+  backdrop-filter: blur(12px);
+}
+
+.album-preview-dialog {
+  position: relative;
+  width: min(1180px, 100%);
+  height: min(880px, calc(100dvh - 56px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+  background: #171925;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 20px;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.45);
+}
+
+.album-preview-dialog .portrait-preview-close {
+  position: absolute;
+  z-index: 6;
+  top: 14px;
+  right: 14px;
+}
+
+.album-preview-info-toggle {
+  position: absolute;
+  z-index: 5;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 13px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(23, 25, 37, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  backdrop-filter: blur(12px);
+}
+
+.album-preview-info-toggle.active {
+  background: rgba(235, 111, 106, 0.88);
+}
+
+.album-preview-image {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #0d0e15;
+  touch-action: none;
+  user-select: none;
+}
+
+.album-preview-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center;
+  transition: transform 160ms ease;
+  cursor: zoom-in;
+  touch-action: none;
+  -webkit-user-drag: none;
+}
+
+.album-preview-image img.zoomed {
+  cursor: grab;
+  transition: none;
+}
+
+.album-preview-nav {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  width: 44px;
+  height: 54px;
+  color: white;
+  background: rgba(23, 25, 37, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 13px;
+  font-size: 30px;
+  line-height: 1;
+  transform: translateY(-50%);
+  backdrop-filter: blur(10px);
+}
+
+.album-preview-nav.previous { left: 14px; }
+.album-preview-nav.next { right: 14px; }
+
+.album-gesture-hint {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 50%;
+  padding: 6px 10px;
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(15, 16, 23, 0.58);
+  border-radius: 999px;
+  font-size: 9px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.album-zoom-controls {
+  position: sticky;
+  z-index: 3;
+  left: 50%;
+  bottom: 16px;
+  align-self: end;
+  justify-self: center;
+  display: flex;
+  overflow: hidden;
+  background: rgba(23, 25, 37, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+}
+
+.album-zoom-controls button {
+  min-width: 42px;
+  height: 38px;
+  padding: 0 12px;
+  color: white;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.album-zoom-controls button:disabled {
+  opacity: 0.35;
+}
+
+.album-zoom-controls .zoom-percentage {
+  min-width: 64px;
+  border-inline: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+}
+
+.album-preview-loading,
+.album-preview-error {
+  padding: 24px;
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+}
+
+.album-preview-loading {
+  animation: album-preview-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes album-preview-pulse {
+  from { opacity: 0.48; }
+  to { opacity: 1; }
+}
+
+.album-preview-error b {
+  display: block;
+  color: white;
+  font-size: 16px;
+}
+
+.album-preview-error p {
+  margin: 8px 0 16px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 12px;
+}
+
+.album-preview-error button {
+  padding: 9px 16px;
+  color: white;
+  background: var(--coral);
+  border: 0;
+  border-radius: 999px;
+}
+
+.album-preview-copy {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: none;
+  width: min(410px, 100%);
+  min-width: 0;
+  padding: 34px 30px;
+  overflow-y: auto;
+  color: #ece9e4;
+  background: #faf8f4;
+  box-shadow: -18px 0 50px rgba(0, 0, 0, 0.28);
+}
+
+.album-preview-copy.details-visible {
+  display: block;
+}
+
+.album-preview-copy h2 {
+  margin: 7px 0 4px;
+  color: var(--ink);
+  font-family: "Songti SC", "SimSun", serif;
+  font-size: 27px;
+  font-weight: 500;
+}
+
+.album-preview-copy > time,
+.album-preview-copy > small {
+  color: #8d898e;
+  font-size: 10px;
+}
+
+.album-preview-copy > section,
+.album-preview-copy > details {
+  margin-top: 18px;
+  padding-top: 15px;
+  color: var(--ink-soft);
+  border-top: 1px solid var(--line);
+}
+
+.album-preview-copy section > b {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.album-preview-copy section > p,
+.album-preview-copy details > p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.85;
+}
+
+.album-preview-copy details summary {
+  color: var(--coral);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.album-preview-copy .album-prompt-copy {
+  width: auto;
+  margin-top: 12px;
+}
+
+.album-detail-tags {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.album-detail-tags span {
+  padding: 5px 9px;
+  color: #655f66;
+  background: #eee9e4;
+  border-radius: 999px;
+  font-size: 9px;
+}
+
+.album-summary-error {
+  margin-top: 16px;
+  padding: 9px 11px;
+  color: #9e5048;
+  background: #fff0ed;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.role-memory-card {
+  margin-top: 14px;
+  padding: 14px;
+  background: #f4f0ea;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+}
+
+.role-memory-card > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.role-memory-card > div b {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.role-memory-card > div small {
+  color: #8d898e;
+  font-size: 9px;
+}
+
+.role-memory-card p {
+  margin: 10px 0 0;
+  color: #5d5960;
+  white-space: pre-wrap;
+  font-size: 11px;
+  line-height: 1.75;
+}
+
+.role-memory-card strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--coral);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .character-stage {
+    min-height: 150px;
+    margin: 8px 13px 0;
+    grid-template-columns: minmax(108px, 0.75fr) minmax(130px, 1.25fr);
+    border-radius: 17px;
+  }
+
+  .character-stage-copy {
+    padding-left: 14px;
+  }
+
+  .character-stage-copy b {
+    font-size: 19px;
+  }
+
+  .character-stage-portrait {
+    height: 150px;
+  }
+
+  .character-stage-tags {
+    position: absolute;
+    z-index: 3;
+    right: 8px;
+    bottom: 8px;
+    padding: 0;
+    display: flex;
+  }
+
+  .character-stage-tags em {
+    padding: 4px 6px;
+    font-size: 7px;
+  }
+
+  .visual-state-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .album-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 11px;
+  }
+
+  .album-grid .image-job-copy {
+    padding: 11px;
+  }
+
+  .album-preview-backdrop {
+    padding: 0;
+  }
+
+  .album-preview-dialog {
+    width: 100%;
+    height: 100dvh;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+    border: 0;
+    border-radius: 0;
+  }
+
+  .album-preview-image {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .album-preview-image img {
+    width: 100%;
+    height: 100%;
+  }
+
+  .album-preview-info-toggle {
+    top: calc(14px + env(safe-area-inset-top));
+  }
+
+  .album-preview-nav {
+    display: none;
+  }
+
+  .album-gesture-hint {
+    top: auto;
+    bottom: 62px;
+    max-width: calc(100% - 28px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .album-preview-copy {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-height: min(56dvh, 520px);
+    padding: 22px 18px calc(28px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: rgba(250, 248, 244, 0.96);
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(18px);
+  }
+
+  .album-preview-copy h2 {
+    font-size: 23px;
+  }
+
+  .role-memory-card > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}
+
+@media (max-width: 480px) {
+  .character-stage {
+    min-height: 132px;
+    grid-template-columns: minmax(102px, 0.8fr) minmax(118px, 1.2fr);
+  }
+
+  .character-stage-portrait {
+    height: 132px;
+  }
+
+  .character-stage-copy p {
+    max-width: 120px;
+    margin-top: 5px;
+    font-size: 8px;
+  }
+
+  .character-stage-tags em:last-child {
+    display: none;
+  }
+
+  .visual-library-intro {
+    align-items: flex-start;
+  }
+
+  .visual-base-card {
+    grid-template-columns: 92px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .visual-base-preview {
+    height: 126px;
+  }
+
+  .stage-background-sheet {
+    width: 100%;
+    max-width: none;
+  }
+
+  .stage-background-preview {
+    height: 160px;
+  }
+
+  .background-prompt-actions > button,
+  .background-prompt-actions .visual-upload-button {
+    flex: 1;
+  }
+
+  .visual-batch-toolbar .visual-batch-primary {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .visual-state-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .visual-state-preview {
+    height: 126px;
+  }
+
+  .visual-editor-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .character-album-guide {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .album-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .album-grid .album-summary {
+    min-height: auto;
+  }
+}

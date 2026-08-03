@@ -6,8 +6,52 @@ function text(value, limit = 1200) {
   return value.trim().slice(0, limit);
 }
 
+const structuredFieldLabels = {
+  age: "年龄",
+  age_appearance: "年龄观感",
+  ageAppearance: "年龄观感",
+  apparent_age: "年龄观感",
+  gender: "性别",
+  position: "画面位置",
+  framing: "画面范围",
+  face: "面容",
+  eyes: "眼睛",
+  hair: "发型",
+  body: "体态",
+  clothing: "服装",
+  wardrobe: "服装",
+  accessories: "标志配饰",
+  pose: "姿态",
+  action: "动作",
+  expression: "表情",
+  interaction: "互动",
+};
+
+function cleanPromptText(value, limit = 1200) {
+  return String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[“”"'`]/g, "")
+    .replace(/【[^】]{0,20}】/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*([，。；：、])\s*/g, "$1")
+    .replace(/([，。；：、])\1+/g, "$1")
+    .replace(/[，；]+。/g, "。")
+    .replace(/。+[；，]/g, "。")
+    .replace(/^[，。；：、\s]+|[，；：、\s]+$/g, "")
+    .trim()
+    .slice(0, limit);
+}
+
 function fieldText(value, limit = 1200) {
-  if (typeof value === "string") return value.trim();
+  if (typeof value === "string") {
+    return cleanPromptText(value, limit)
+      .replace(/\bname\s*[:：]\s*[^；;，。]+[；;]?/gi, "")
+      .replace(/\b(?:age_appearance|ageAppearance|apparent_age)\s*[:：]\s*/gi, "年龄观感为")
+      .replace(/\bgender\s*[:：]\s*/gi, "性别为")
+      .replace(/\bposition\s*[:：]\s*/gi, "位于")
+      .replace(/\bframing\s*[:：]\s*/gi, "画面范围为")
+      .replace(/\b[a-z_][a-z0-9_]*\s*[:：]\s*/gi, "");
+  }
   if (value === null || value === undefined) return "";
   if (Array.isArray(value)) {
     return value
@@ -20,13 +64,121 @@ function fieldText(value, limit = 1200) {
     return Object.entries(value)
       .map(([key, item]) => {
         const inner = fieldText(item, 200);
-        return inner ? `${key}：${inner}` : "";
+        if (!inner || key === "name") return "";
+        const label = structuredFieldLabels[key]
+          || (/^[\u4e00-\u9fff]{1,12}$/.test(key) ? key : "");
+        return label ? `${label}：${inner}` : inner;
       })
       .filter(Boolean)
       .join("；")
       .slice(0, limit);
   }
   return String(value).slice(0, limit);
+}
+
+function chinesePersonIndex(index) {
+  return ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"][index] || String(index + 1);
+}
+
+function naturalizeCastRecord(record, index) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    const plain = fieldText(record, 260);
+    return plain ? `人物${chinesePersonIndex(index)}：${plain}` : "";
+  }
+  const age = fieldText(
+    record.age_appearance ?? record.ageAppearance ?? record.apparent_age ?? record.age,
+    60,
+  );
+  const gender = fieldText(record.gender, 30);
+  const position = fieldText(record.position ?? record.framing, 140);
+  const details = Object.entries(record)
+    .filter(([key]) => ![
+      "name", "age", "age_appearance", "ageAppearance", "apparent_age", "gender", "position", "framing",
+    ].includes(key))
+    .map(([key, value]) => {
+      const inner = fieldText(value, 120);
+      if (!inner) return "";
+      const label = structuredFieldLabels[key]
+        || (/^[\u4e00-\u9fff]{1,12}$/.test(key) ? key : "");
+      return label ? `${label}${inner}` : inner;
+    })
+    .filter(Boolean);
+  const identity = [age ? `外表${age}` : "", gender].filter(Boolean).join("的");
+  const parts = [identity, position ? `位于${position}` : "", ...details].filter(Boolean);
+  return parts.length ? `人物${chinesePersonIndex(index)}：${parts.join("，")}` : "";
+}
+
+function naturalizeCastString(value) {
+  const normalized = String(value || "")
+    .replace(/\b(ageAppearance|apparent_age)\b/gi, "age_appearance")
+    .replace(/[\r\n]+/g, " ");
+  if (!/(?:^|[；;])\s*name\s*[:：]/i.test(normalized)) {
+    return cleanPromptText(normalized, 900)
+      .replace(/\bname\s*[:：]\s*[^；;，。]+[；;]?/gi, "")
+      .replace(/\bage_appearance\s*[:：]\s*/gi, "年龄观感")
+      .replace(/\bgender\s*[:：]\s*/gi, "性别")
+      .replace(/\bposition\s*[:：]\s*/gi, "画面位置")
+      .replace(/\b(?:framing)\s*[:：]\s*/gi, "画面范围")
+      .replace(/\b[a-z_][a-z0-9_]*\s*[:：]\s*/gi, "");
+  }
+  const records = [...normalized.matchAll(
+    /(?:^|[；;])\s*name\s*[:：]\s*([^；;]+)([\s\S]*?)(?=(?:[；;]\s*name\s*[:：])|$)/gi,
+  )];
+  const aliases = records.map((match, index) => ({
+    name: cleanPromptText(match[1], 40),
+    label: `人物${chinesePersonIndex(index)}`,
+  }));
+  return records
+    .map((match, index) => {
+      const record = {};
+      let chunk = match[2];
+      for (const alias of aliases) {
+        if (alias.name) chunk = chunk.split(alias.name).join(alias.label);
+      }
+      for (const segment of chunk.split(/[；;]/)) {
+        const match = segment.match(/^\s*([a-z_][a-z0-9_]*)\s*[:：]\s*(.+?)\s*$/i);
+        if (match) record[match[1]] = match[2];
+      }
+      return naturalizeCastRecord(record, index);
+    })
+    .filter(Boolean)
+    .join("；");
+}
+
+function anonymizeCastRecords(records) {
+  const source = Array.isArray(records) ? records : [];
+  const aliases = source.map((record, index) => ({
+    name: cleanPromptText(record?.name, 40),
+    label: `人物${chinesePersonIndex(index)}`,
+  }));
+  return source.map((record) => {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return record;
+    return Object.fromEntries(Object.entries(record).map(([key, value]) => {
+      if (typeof value !== "string") return [key, value];
+      let result = value;
+      for (const alias of aliases) {
+        if (alias.name) result = result.split(alias.name).join(alias.label);
+      }
+      return [key, result];
+    }));
+  });
+}
+
+function castText(value, limit = 900) {
+  let result = "";
+  if (typeof value === "string") {
+    result = naturalizeCastString(value);
+  } else if (Array.isArray(value)) {
+    result = anonymizeCastRecords(value).map(naturalizeCastRecord).filter(Boolean).join("；");
+  } else if (value && typeof value === "object") {
+    const looksLikeOnePerson = [
+      "name", "age", "age_appearance", "ageAppearance", "apparent_age", "gender", "position", "framing",
+    ].some((key) => Object.hasOwn(value, key));
+    result = looksLikeOnePerson
+      ? naturalizeCastRecord(value, 0)
+      : anonymizeCastRecords(Object.values(value)).map(naturalizeCastRecord).filter(Boolean).join("；");
+  }
+  return cleanPromptText(result, limit);
 }
 
 function roleList(profile = {}, ensemble = {}) {
@@ -107,7 +259,7 @@ const continuityPriority = `【视觉资料优先级】
 
 若最近对话省略发型、瞳色、体态或标志物，必须从稳定外观补回，绝不能因为对话没提到就省略，也不能把其他角色的外观移植过来。实际年龄与外表年龄不一致时分别保留，不擅自改写；任何外表明显未成年的角色只采用其符合外表年龄的非性化服装、姿态和镜头。`;
 const visualOnlyOutputRule = `【输出画面语言】
-最终画面描述中禁止出现剧情自定义的人名（如“晚晚”“小雨”）和专有地名，一律替换为可直接画出来的视觉特征：人物用性别与年龄观感、发型、脸型、眼睛与瞳色、体态、服装结构与材质颜色、标志配饰来描述；地点用建筑材质、年代与风格、空间陈设、灯光和天气痕迹来描述。只输出视觉语言，不输出剧情称谓。`;
+最终画面描述中禁止出现剧情自定义的人名和专有地名，一律替换为可直接画出来的视觉特征：人物用性别与年龄观感、发型、脸型、眼睛与瞳色、体态、服装结构与材质颜色、标志配饰来描述；地点用建筑材质、年代与风格、空间陈设、灯光和天气痕迹来描述。只输出视觉语言，不输出剧情称谓。`;
 export function buildImagePromptRequest(body = {}, kind = "scene") {
   const roles = roleList(body.profile || {}, body.ensemble || {});
   const memories = body.roleMemories && typeof body.roleMemories === "object"
@@ -187,13 +339,14 @@ ${styleConstraint}${visualOnlyOutputRule}
 
 硬性要求：
 - 只选最近剧情中确实在场、正在行动或被镜头直接捕捉的人物；“可能在场人物”只是候选，不得把整个人物库都塞入画面。
-- 对每位入镜人物，必须先明确写出姓名、外表年龄或年龄观感、性别、脸部与眼睛、发型、体态、基础服装、标志配饰，再写此刻姿势与互动。稳定人物特征不得被省略。
+- 对每位入镜人物，先在内部确认姓名以匹配正确档案；输出时只用“人物一、人物二……”区分，并明确写出外表年龄或年龄观感、性别、脸部与眼睛、发型、体态、基础服装、标志配饰，再写此刻姿势与互动。稳定人物特征不得被省略。
 - 最近对话只作为事件证据。禁止照抄【场景】【心情】【动作】【剧情推进】等原文，禁止输出对白、引号台词、声音、内心旁白、抽象判断或连续动作过程。
 - 只定格一个瞬间，所有四肢、视线、接触关系、道具和前中后景在同一时刻成立。特殊能力与环境特效不超过画面描述的 20%，人物识别和互动始终是主体。
 - 缺失的衣料结构、空间陈设、光线方向与镜头信息可按世界和事件因果合理补全，但不得改变稳定外观或凭空制造新事件。
+- JSON 的十个顶层字段必须全部是自然中文字符串，禁止在字段值里嵌套对象或数组，禁止出现 name、age_appearance、gender、position 等程序字段名。
 
 只返回严格 JSON：
-{"scene":"地点、时间、天气、正在发生的单一瞬间与空间基调","cast":"逐一写入镜人物姓名、年龄观感、性别、位置和画面范围","appearance":"逐一完整写脸型、眼睛、瞳色、发型、体态、稳定服装与标志配饰","wardrobe":"逐一写当前服装结构、材质、颜色、临时状态、褶皱与受光","pose":"逐一写朝向、重心、肩颈、四肢、双手和道具","interaction":"人物距离、视线、接触方式和同一瞬间的因果关系","expression":"逐一写可见微表情与视线方向，不写内心独白","environment":"前中后景、家具物品、天气痕迹与有限的能力效果","lighting":"主辅光方向、色温、高光、阴影和色彩关系","camera":"正面或正面三分之二视角、景别、机位、焦段感、景深和9:16构图"}`,
+{"scene":"地点、时间、天气、正在发生的单一瞬间与空间基调","cast":"人物一：外表二十多岁的女性，位于画面中央偏左；人物二：外表三十岁左右的男性，位于后景门边","appearance":"人物一……；人物二……","wardrobe":"人物一……；人物二……","pose":"人物一……；人物二……","interaction":"人物距离、视线、接触方式和同一瞬间的因果关系","expression":"逐一写可见微表情与视线方向，不写内心独白","environment":"前中后景、家具物品、天气痕迹与有限的能力效果","lighting":"主辅光方向、色温、高光、阴影和色彩关系","camera":"正面或正面三分之二视角、景别、机位、焦段感、景深和9:16构图"}`,
     user: `${continuityPriority}
 
 ${momentAnchor}
@@ -255,7 +408,7 @@ export function formatImagePromptResponse(content, kind = "scene", request = {})
   if (!parsed) throw new Error("对话模型返回的场景结构无法解析");
   const fields = [
     ["scene", "场景与空间", 110],
-    ["cast", "画面人物", 130],
+    ["cast", "画面人物", 280],
     ["appearance", "稳定外观", 230],
     ["wardrobe", "服装与材质", 150],
     ["pose", "定格姿势", 120],
@@ -267,15 +420,12 @@ export function formatImagePromptResponse(content, kind = "scene", request = {})
   ];
   const parts = fields
     .map(([key, label, limit]) => {
-      const value = fieldText(parsed?.[key], limit)
-        .replace(/[\r\n]+/g, " ")
-        .replace(/[“”"'`]/g, "")
-        .replace(/【[^】]{0,20}】/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
+      const value = key === "cast"
+        ? castText(parsed?.[key], limit)
+        : cleanPromptText(fieldText(parsed?.[key], limit), limit);
       return value ? `${label}：${value}` : "";
     })
     .filter(Boolean);
   if (parts.length < 7) throw new Error("对话模型返回的场景细节不足");
-  return parts.join("。");
+  return cleanPromptText(parts.join("。"), 6000);
 }

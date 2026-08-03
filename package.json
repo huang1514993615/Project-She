@@ -1,47 +1,27 @@
 {
   "name": "night-mailbox-ai-companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "engines": {
-    "node": ">=22.13.0"
-  },
+  "type": "module",
   "scripts": {
-    "dev": "node server/local-server.mjs",
-    "dev:vinext": "vinext dev",
-    "build": "vinext build",
-    "build:android-web": "node node_modules/vite/bin/vite.js build --config vite.mobile.config.js",
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build --config vite.config.ts",
     "build:standalone": "node scripts/build-standalone-html.mjs",
+    "build:app": "node scripts/build-standalone-html.mjs",
     "build:app-update": "node scripts/build-standalone-html.mjs",
-    "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "check:syntax": "node scripts/check-syntax.mjs",
+    "check": "npm run check:syntax && npm run build && npm run build:standalone",
+    "test": "npm run check && node --test tests/rendered-html.test.mjs"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.2",
-    "next": "16.2.6",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "undici": "7.24.8",
     "vue": "2.7.16"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
-    "drizzle-kit": "0.31.10",
-    "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
-    "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
-  },
-  "type": "module"
+    "vite": "8.0.13"
+  }
 }

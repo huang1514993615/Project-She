@@ -14,11 +14,6 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/.vinext/
-/out/
-
 # misc
 .DS_Store
 *.pem
@@ -31,20 +26,19 @@ yarn-error.log*
 dev.out.log
 dev.err.log
 
-# env files (can opt-in for committing if needed)
+# local environment files are never part of the pure frontend release
 .env*
-!.env.example
-
-# vercel
-.vercel
 
 # typescript
-next-env.d.ts
 *.tsbuildinfo
 /dist/
-/.wrangler/
 /outputs/
 /work/
+/standalone/.build/
+/.wrangler/
+/uniapp/unpackage/
+/uniapp/hybrid/html/*
+!/uniapp/hybrid/html/night-mailbox-app.html
 
 # personal runtime data
 /data/*.json
