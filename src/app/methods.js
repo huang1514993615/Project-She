@@ -6,10 +6,12 @@ import {
 import {
   STORY_TIME_SEGMENTS,
   advanceStoryClock,
+  formatStoryMoment,
   normalizeStoryClock,
   normalizeStoryEvent,
   normalizeStoryEvents,
   storyMomentValue,
+  storySegmentLabel,
 } from "../../shared/story-time.js";
 import { shouldAnalyzeStoryEvent } from "../../shared/story-event-ai.js";
 import {
@@ -2489,9 +2491,6 @@ export const appMethods = {
         segment: event.segment,
       });
     },
-    segmentName(segment) {
-      return storySegmentLabel(segment);
-    },
     storyMomentValue(day, segment) {
       return storyMomentValue(day, segment);
     },
@@ -2611,8 +2610,37 @@ export const appMethods = {
       }
     },
     openSchedule() {
-      this.timeSheetOpen = false;
       this.mobileTab = "schedule";
+    },
+    // 一键跳过当前剧情：确认后先收尾当前故事，再推进到下一时段，AI 自然衔接
+    async skipCurrentStory() {
+      if (this.sending || this.summarizing || this.ensemblePlaying || this.storySkipping) return;
+      if (!this.chatConnectionVerified) {
+        this.showToast("请先验证对话接口并选择模型");
+        return;
+      }
+      if (!window.confirm("跳过当前剧情？AI 会把这段故事自然收尾并推进到下一个时间段，剧情会向前走一步。")) return;
+      this.storySkipping = true;
+      try {
+        const previous = formatStoryMoment(this.storyClock);
+        const index = STORY_TIME_SEGMENTS.findIndex((item) => item.id === this.storyClock.segment);
+        const next = index >= 0 && index < STORY_TIME_SEGMENTS.length - 1
+          ? { day: this.storyClock.day, segment: STORY_TIME_SEGMENTS[index + 1].id }
+          : { day: this.storyClock.day + 1, segment: STORY_TIME_SEGMENTS[0].id };
+        const target = advanceStoryClock(this.storyClock, next.day, next.segment);
+        const done = await this.sendMessage({
+          hiddenDriver: true,
+          forceSingle: true,
+          driverContent: `时间已经推进：从“${previous}”到“${formatStoryMoment(target)}”。请先以自然的口吻，完整收尾刚才这段正在进行的故事：交代之前未聊完的话题、手头事务或动作的合理结果（日常收尾即可，不要生硬打断，也不要展开新的支线）。然后描述新时间点的场景变化、角色状态和正在发生的小事，让剧情自然衔接并继续向前推进一小步；不要替我拿主意，说完自然停下等我。`,
+        });
+        if (!done) return;
+        this.storyClock = target;
+        this.dayCount = target.day;
+        await this.saveSettings().catch(() => this.showToast("剧情时间保存失败"));
+        this.showToast(`已推进到第${target.day}日·${storySegmentLabel(target.segment)}`);
+      } finally {
+        this.storySkipping = false;
+      }
     },
     openTopMenu() {
       this.mobileMenuOpen = true;
@@ -2720,56 +2748,6 @@ export const appMethods = {
       this.patchStoryEvent(event, { status: "completed" });
       this.saveSettings().catch(() => {});
       this.showToast("事件已标记完成");
-    },
-    openTimeJump(days = 1, segment = "dawn") {
-      this.timeSheetOpen = false;
-      const normalizedSegment = STORY_TIME_SEGMENTS.some((item) => item.id === segment)
-        ? segment
-        : "dawn";
-      const requestedDays = Math.max(0, Number(days) || 0);
-      const currentValue = storyMomentValue(this.storyClock.day, this.storyClock.segment);
-      const sameDayTarget = storyMomentValue(this.storyClock.day, normalizedSegment);
-      this.timeJumpDays = requestedDays === 0 && sameDayTarget <= currentValue ? 1 : requestedDays;
-      this.timeJumpSegment = normalizedSegment;
-      this.timeJumpOpen = true;
-    },
-    advanceToNextSegment() {
-      const index = STORY_TIME_SEGMENTS.findIndex((item) => item.id === this.storyClock.segment);
-      if (index >= 0 && index < STORY_TIME_SEGMENTS.length - 1) {
-        this.openTimeJump(0, STORY_TIME_SEGMENTS[index + 1].id);
-      } else {
-        this.openTimeJump(1, "dawn");
-      }
-    },
-    confirmTimeJump() {
-      const previous = formatStoryMoment(this.storyClock);
-      const target = advanceStoryClock(
-        this.storyClock,
-        this.timeJumpTargetDay,
-        this.timeJumpSegment,
-      );
-      if (!this.timeJumpKeepOverdue) {
-        const affectedIds = new Set(this.timeJumpAffectedEvents.map((event) => event.id));
-        this.storyEvents = normalizeStoryEvents(this.storyEvents.map((event) =>
-          affectedIds.has(event.id)
-            ? { ...event, status: "missed", updatedAt: new Date().toISOString() }
-            : event
-        ));
-      }
-      this.storyClock = target;
-      this.dayCount = target.day;
-      this.timeJumpOpen = false;
-      this.saveSettings().catch(() => this.showToast("剧情时间保存失败"));
-      this.mobileTab = "chat";
-      if (this.timeJumpAddTransition) {
-        this.sendMessage({
-          hiddenDriver: true,
-          driverContent: `时间已经推进：从“${previous}”到“${formatStoryMoment(target)}”。请先以自然的口吻，简短交代这期间之前正在进行的事、未聊完的话题或手头事务的合理结果（日常收尾即可），再描述新时间点的场景变化、角色状态和正在发生的小事，让剧情自然衔接并继续向前推进一小步；不要擅自替我拿主意，说完自然停下等我。`,
-        });
-      } else {
-        this.$nextTick(() => this.scrollBottom());
-      }
-      this.showToast(`已推进到第${target.day}日·${storySegmentLabel(target.segment)}`);
     },
     respondToDueEvent(event, action) {
       if (!event || this.sending) return;

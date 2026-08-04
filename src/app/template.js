@@ -6,9 +6,9 @@ export const appTemplate = `
           <span class="brand-mark">夜</span>
           <span><b>夜航信箱</b><small>NIGHT MAILBOX</small></span>
         </button>
-        <button type="button" class="brand-story-clock" @click="timeSheetOpen = true">
+        <button type="button" class="brand-story-clock" @click="skipCurrentStory" :disabled="storySkipping" aria-label="跳过当前剧情">
           <b>第 {{ storyClock.day }} 日 · {{ storySegmentLabel }}</b>
-          <small>{{ storyClock.location || '当前剧情' }}</small>
+          <small>{{ storySkipping ? '正在推进剧情…' : '跳过当前剧情' }}</small>
         </button>
         <div class="brand-actions">
           <button class="prompt-shortcut" @click="openImageStudio">生图</button>
@@ -290,13 +290,6 @@ export const appTemplate = `
               <span>当前位置</span>
               <input v-model.trim="storyClock.location" maxlength="120" placeholder="地点尚未记录，点这里填写" />
             </label>
-          </section>
-
-          <section class="time-quick-actions">
-            <button type="button" @click="advanceToNextSegment"><b>下一时段</b><small>自然推进一点</small></button>
-            <button type="button" @click="openTimeJump(0, 'night')"><b>到今晚</b><small>预览后确认</small></button>
-            <button type="button" @click="openTimeJump(1, 'morning')"><b>明天上午</b><small>跨过一晚</small></button>
-            <button type="button" @click="openTimeJump(1, 'dawn')"><b>自定义跳转</b><small>天数与时段</small></button>
           </section>
 
           <section v-if="pendingConfirmationEvents.length" class="schedule-group">
@@ -871,25 +864,6 @@ export const appTemplate = `
       </transition>
 
       <transition name="fade">
-        <div v-if="timeSheetOpen" class="modal-backdrop time-sheet-backdrop" @click.self="timeSheetOpen = false">
-          <section class="time-control-sheet" role="dialog" aria-modal="true" aria-labelledby="time-control-title">
-            <div class="sheet-grabber"></div>
-            <button class="modal-close" @click="timeSheetOpen = false" aria-label="关闭">×</button>
-            <small>当前剧情时间</small>
-            <h2 id="time-control-title">第 {{ storyClock.day }} 日 · {{ storySegmentLabel }}</h2>
-            <p>{{ storyClock.location || '当前地点尚未记录' }}</p>
-            <div class="time-sheet-actions">
-              <button type="button" @click="advanceToNextSegment"><b>推进到下一时段</b><span>每次操作都会先预览</span></button>
-              <button type="button" @click="openTimeJump(0, 'night')"><b>直接到今晚</b><span>跨过白天的日常时间</span></button>
-              <button type="button" @click="openTimeJump(1, 'morning')"><b>明天上午</b><span>开始新的一天</span></button>
-              <button type="button" @click="openTimeJump(1, 'dawn')"><b>自定义跳转</b><span>选择天数和目标时段</span></button>
-            </div>
-            <button type="button" class="open-full-schedule" @click="openSchedule">查看全部约定</button>
-          </section>
-        </div>
-      </transition>
-
-      <transition name="fade">
         <div v-if="eventEditorOpen" class="modal-backdrop" @click.self="eventEditorOpen = false">
           <section class="settings-sheet event-editor-sheet" role="dialog" aria-modal="true" aria-labelledby="event-editor-title">
             <button class="modal-close" @click="eventEditorOpen = false" aria-label="关闭">×</button>
@@ -918,44 +892,6 @@ export const appTemplate = `
               <textarea v-model.trim="eventDraft.notes" rows="4" maxlength="1000" placeholder="要带的东西、约定原因或不能忘的细节…"></textarea>
             </label>
             <button type="button" class="save-profile" @click="saveStoryEventDraft">保存约定</button>
-          </section>
-        </div>
-      </transition>
-
-      <transition name="fade">
-        <div v-if="timeJumpOpen" class="modal-backdrop" @click.self="timeJumpOpen = false">
-          <section class="settings-sheet time-jump-sheet" role="dialog" aria-modal="true" aria-labelledby="time-jump-title">
-            <button class="modal-close" @click="timeJumpOpen = false" aria-label="关闭">×</button>
-            <div class="eyebrow">TIME ADVANCE PREVIEW</div>
-            <h2 id="time-jump-title">确认推进剧情时间</h2>
-            <div class="time-jump-preview">
-              <span>{{ storyMomentLabel }}</span>
-              <i>→</i>
-              <b>第{{ timeJumpTargetDay }}日 · {{ segmentName(timeJumpSegment) }}</b>
-            </div>
-            <div class="event-time-fields">
-              <label class="field-label">跳过天数
-                <input v-model.number="timeJumpDays" type="number" min="0" max="3650" />
-              </label>
-              <label class="field-label">到达时段
-                <select v-model="timeJumpSegment">
-                  <option v-for="segment in storyTimeSegments" :key="segment.id" :value="segment.id">{{ segment.label }}</option>
-                </select>
-              </label>
-            </div>
-            <section v-if="timeJumpAffectedEvents.length" class="time-jump-warning">
-              <b>途中会经过 {{ timeJumpAffectedEvents.length }} 个约定</b>
-              <span v-for="event in timeJumpAffectedEvents.slice(0, 5)" :key="event.id">{{ formatStoryEventMoment(event) }} · {{ event.title }}</span>
-            </section>
-            <label class="model-manager-toggle">
-              <span><b>保留途中未处理的约定</b><small>关闭后，这些约定会标记为“已错过”</small></span>
-              <input v-model="timeJumpKeepOverdue" type="checkbox" />
-            </label>
-            <label class="model-manager-toggle">
-              <span><b>跳转后让角色回应新时间</b><small>AI 会主动描述场景变化并继续剧情，不用等你先开口</small></span>
-              <input v-model="timeJumpAddTransition" type="checkbox" />
-            </label>
-            <button type="button" class="save-profile" @click="confirmTimeJump">确认推进</button>
           </section>
         </div>
       </transition>

@@ -1,7 +1,6 @@
 import { maxEnsembleMessages } from "../../shared/ensemble-turns.js";
 import {
   dueStoryEvents,
-  formatStoryMoment,
   normalizeStoryEvents,
   storyMomentValue,
   storySegmentLabel,
@@ -58,9 +57,6 @@ export const appComputed = {
       if (this.imageCatalogVerified) return "请选择图片模型";
       return "图片接口尚未验证";
     },
-    storyMomentLabel() {
-      return formatStoryMoment(this.storyClock);
-    },
     storySegmentLabel() {
       return storySegmentLabel(this.storyClock.segment);
     },
@@ -83,18 +79,6 @@ export const appComputed = {
           || event.status === "accepted"
         )
         .slice(0, 30);
-    },
-    timeJumpTargetDay() {
-      return Math.min(99999, this.storyClock.day + Math.max(0, Number(this.timeJumpDays) || 0));
-    },
-    timeJumpAffectedEvents() {
-      const current = storyMomentValue(this.storyClock.day, this.storyClock.segment);
-      const target = storyMomentValue(this.timeJumpTargetDay, this.timeJumpSegment);
-      return this.activeScheduleEvents.filter((event) =>
-        event.day !== null
-        && storyMomentValue(event.day, event.segment) > current
-        && storyMomentValue(event.day, event.segment) < target
-      );
     },
     roleMemoryCount() {
       return Object.keys(this.roleMemories || {}).length;
