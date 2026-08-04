@@ -21,6 +21,10 @@ export const connectionMethods = {
       if (!models.includes(this.chatModel)) this.chatModel = "";
       this.chatConnectionVerified = this.chatCatalogVerified && Boolean(this.chatModel);
       this.persist();
+      // 读取到模型但尚未选择时，主动提醒用户选择，避免新手困惑
+      if (this.chatCatalogVerified && !this.chatModel) {
+        this.showToast(`已读取 ${models.length} 个模型，请选择要使用的对话模型`);
+      }
     } catch (error) {
       this.chatCatalogVerified = false;
       this.chatConnectionVerified = false;

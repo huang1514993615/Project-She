@@ -27,9 +27,9 @@ export function createAppState() {
     worldSyncPending: false,
     savedWorldHash: "",
 
-    userProfile: { name: "旅行者", gender: "未指定", pronoun: "TA" },
+    userProfile: { name: "", gender: "未指定", pronoun: "TA" },
     profile: {
-      name: "", age: 24, gender: "未指定", personality: "", relation: "旅伴",
+      name: "", age: 24, gender: "女性", personality: "", relation: "旅伴",
       prompt: "", appearance: "", imagePrompt: "", avatarUrl: "", worldVersion: 0,
       derivedProfile: {},
     },

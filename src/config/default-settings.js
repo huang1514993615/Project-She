@@ -13,14 +13,14 @@ export const STANDALONE_DEFAULT_SETTINGS = {
   worldVersion: 0,
   worldSyncPending: false,
   userProfile: {
-    name: "旅行者",
+    name: "",
     gender: "未指定",
     pronoun: "TA",
   },
   profile: {
     name: "",
     age: 24,
-    gender: "未指定",
+    gender: "女性",
     personality: "",
     relation: "旅伴",
     prompt: "",

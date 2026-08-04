@@ -1444,11 +1444,11 @@ export const appTemplate = `
               </nav>
 
               <section v-if="onboardingStep === 1" class="onboarding-pane">
-                <div class="onboarding-pane-heading"><b>先配置对话模型</b><small>世界和人物都需要使用这里选定的模型生成；图片模型可稍后再配。</small></div>
+                <div class="onboarding-pane-heading"><b>先配置对话模型</b><small>点击下方按钮填写 API 地址与 Key，保存后会自动读取模型列表，再选一个要用的模型。</small></div>
                 <article class="onboarding-connection-card" :class="{ ready: chatConnectionVerified }">
-                  <span>{{ chatConnectionVerified ? '对话连接已就绪' : (chatCatalogVerified ? '模型目录读取成功，请选择模型' : (chatModelsLoading ? '正在验证模型目录' : '尚未验证')) }}</span>
-                  <b>{{ chatConnectionVerified ? chatModel : (chatCatalogVerified ? availableChatModels.length + ' 个模型可选' : '对话 API 地址与 Key') }}</b>
-                  <small>{{ chatConnectionVerified ? '该选择会保存在当前设备' : (modelConnectionWarning || '保存配置不代表模型已经选择') }}</small>
+                  <span>{{ chatConnectionVerified ? '对话连接已就绪' : (chatCatalogVerified ? '模型目录读取成功，请选择模型' : (chatModelsLoading ? '正在验证模型目录…' : '尚未配置 API 连接')) }}</span>
+                  <b>{{ chatConnectionVerified ? chatModel : (chatCatalogVerified ? availableChatModels.length + ' 个模型可选，请选择' : (chatModelsLoading ? '正在读取模型列表…' : '点击下方按钮填写 API 地址与 Key')) }}</b>
+                  <small>{{ chatConnectionVerified ? '该选择会保存在当前设备' : (modelConnectionWarning || '保存后会读取模型列表，再选择要用的模型') }}</small>
                   <button type="button" @click="openDirectApiSettings">{{ chatApiMode === 'configured' ? '重新配置或检测' : '配置 API 连接' }}</button>
                 </article>
                 <label v-if="chatCatalogVerified" class="field-label">选择对话模型
@@ -1462,7 +1462,7 @@ export const appTemplate = `
               </section>
 
               <section v-else-if="onboardingStep === 2" class="onboarding-pane">
-                <div class="onboarding-pane-heading"><b>你的身份</b><small>只用于称呼与代词，不会据此推断性格、能力或关系。</small></div>
+                <div class="onboarding-pane-heading"><b>你的身份</b><small>填一个想被称呼的名字或称呼；性别只用于代词，不会据此推断性格、能力或关系。</small></div>
                 <section class="identity-setup-card user-identity-card">
                   <label class="field-label">名字或称呼<input v-model.trim="userProfile.name" maxlength="20" placeholder="例如：旅行者、小安" /></label>
                   <label class="field-label">性别
@@ -1474,7 +1474,7 @@ export const appTemplate = `
               </section>
 
               <section v-else-if="onboardingStep === 3" class="onboarding-pane">
-                <div class="onboarding-pane-heading"><b>先确定世界</b><small>人物身份、性格和外观都会以确认后的世界为基础，不再套用发行版固定模板。</small></div>
+                <div class="onboarding-pane-heading"><b>先确定世界</b><small>已为你预填「神秘快递 · AI 恋人」的默认世界设定，可直接使用，也可编辑或让 AI 进一步完善。</small></div>
                 <div class="onboarding-mode-switch" role="group" aria-label="世界创建方式">
                   <button type="button" :class="{ active: onboardingWorldMode === 'ai' }" @click="onboardingWorldMode = 'ai'">AI 帮我建立</button>
                   <button type="button" :class="{ active: onboardingWorldMode === 'manual' }" @click="onboardingWorldMode = 'manual'">我自己填写</button>
@@ -1482,26 +1482,26 @@ export const appTemplate = `
                 <button type="button" class="onboarding-template-card" :class="{ active: onboardingWorldTemplateId === 'mystery-delivery-lover' }" @click="applyLoverWorldTemplate('mystery-delivery-lover', true)">
                   <span>◆</span>
                   <b>神秘快递 · AI 恋人</b>
-                  <small>现代都市，你收到一个无寄件人的快递，打开是一个远超时代的仿真人 AI 恋人，只能直流电充电，能力随相处逐步开发。点击一键填入创作方向。</small>
+                  <small>现代都市，你收到一个无寄件人的快递，打开是一个远超时代的仿真人 AI 恋人，只能直流电充电，能力随相处逐步开发。点击一键填入完整世界设定。</small>
                 </button>
                 <label v-if="onboardingWorldMode === 'ai'" class="field-label">告诉 AI 你想要的世界
-                  <textarea v-model.trim="worldSeed" maxlength="1000" rows="4" placeholder="例如：现代沿海小城，现实日常中带一点悬疑，不要超能力；故事从一间旧书店开始。"></textarea>
+                  <textarea v-model.trim="worldSeed" maxlength="1000" rows="4" placeholder="留空则使用默认世界的基调；想个性化时在这里写：例如现代沿海小城，现实日常中带一点悬疑。"></textarea>
                 </label>
                 <label class="field-label"><span class="field-label-heading"><span>完整世界设定</span><small>{{ worldSetting.length }}/12000</small></span>
                   <textarea v-model.trim="worldSetting" maxlength="12000" rows="9" placeholder="写清时代、地点、世界规则、故事基调、禁止内容和故事起点。"></textarea>
                 </label>
-                <button v-if="onboardingWorldMode === 'ai'" type="button" class="onboarding-ai-action" @click="generateWorldSetting" :disabled="worldGenerating || !worldSeed.trim()">{{ worldGenerating ? 'AI 正在建立世界…' : 'AI 生成 / 完善世界设定' }}</button>
-                <p class="onboarding-note">AI 结果会先显示差异预览，只有确认后才写入。你也可以直接编辑上面的完整设定。</p>
+                <button v-if="onboardingWorldMode === 'ai'" type="button" class="onboarding-ai-action compact" @click="generateWorldSetting" :disabled="worldGenerating || !worldSeed.trim()">{{ worldGenerating ? 'AI 正在建立世界…' : '让 AI 按上面的方向完善世界' }}</button>
+                <p class="onboarding-note">默认世界设定已预填，可直接使用；AI 完善是可选项，结果会先显示差异预览，确认后才写入。</p>
                 <p v-if="worldSetting.trim().length < 60" class="onboarding-length-hint">完整世界设定至少需要 60 字，当前 {{ worldSetting.trim().length }} 字。</p>
                 <div class="onboarding-actions"><button type="button" @click="goToOnboardingStep(2)">上一步</button><button type="button" class="primary" @click="advanceOnboarding" :disabled="worldSetting.trim().length < 60">确认世界，创建人物</button></div>
               </section>
 
               <section v-else-if="onboardingStep === 4" class="onboarding-pane">
-                <div class="onboarding-pane-heading"><b>创建核心人物</b><small>AI 会结合第 {{ worldVersion || 1 }} 版世界、你的身份、关系和补充要求生成完整人物。</small></div>
+                <div class="onboarding-pane-heading"><b>创建核心人物</b><small>已按人物性别预填默认性格与外观模板，可直接使用或让 AI 生成完整人物。</small></div>
                 <div class="onboarding-role-grid">
                   <label class="field-label">人物名字<input v-model.trim="profile.name" maxlength="12" placeholder="可以先留空，让 AI 命名" /></label>
                   <label class="field-label">人物性别
-                    <select v-model="profile.gender" @change="syncCoreAvatarToGender"><option>女性</option><option>男性</option><option>非二元</option><option>未指定</option></select>
+                    <select v-model="profile.gender" @change="applyRoleTemplateForGender"><option>女性</option><option>男性</option><option>非二元</option><option>未指定</option></select>
                   </label>
                 </div>
                 <label class="field-label">恋人模板（可选，一键填入人物要求）
@@ -1509,7 +1509,7 @@ export const appTemplate = `
                     <option value="" disabled>请选择一个模板</option>
                     <option v-for="template in onboardingRoleTemplateOptions()" :key="template.id" :value="template.id">{{ template.label }}</option>
                   </select>
-                  <small>已按你的性别预选了默认模板；也可切换或清空自行填写。</small>
+                  <small>已按人物性别预选了默认模板；切换性别会自动更换，也可清空后自行填写。</small>
                 </label>
                 <button v-if="onboardingRoleTemplateId" type="button" class="onboarding-template-clear" @click="clearOnboardingRoleTemplate">清除模板，完全自己写</button>
                 <label class="field-label">与我的初始关系
@@ -1529,7 +1529,7 @@ export const appTemplate = `
                   <span><b>选择或上传人物头像</b><small>内置头像不调用图片接口；上传图会进入当前设备的统一图片存储。</small></span>
                   <div>
                     <button v-for="preset in matchingCoreAvatarPresets" :key="preset.id" type="button" :class="{ active: profile.avatarUrl === preset.url || (!profile.avatarUrl && defaultCoreAvatarPreset.id === preset.id) }" @click="selectCoreAvatar(preset)">
-                      <img :src="preset.url" :alt="preset.label + '预设头像'" /><small>{{ preset.label }}</small>
+                      <img :src="preset.url" :alt="preset.label + '预设头像'" /><small>{{ preset.label }}{{ preset.id === defaultCoreAvatarPreset.id ? ' · 推荐' : '' }}</small>
                     </button>
                   </div>
                   <label class="avatar-upload-button"><span>{{ avatarUploadingId === 'primary' ? '正在保存图片…' : '从设备上传头像' }}</span><input type="file" accept="image/*" @change="uploadRoleAvatar($event, 'primary')" :disabled="avatarUploadingId === 'primary'" /></label>
@@ -1609,7 +1609,7 @@ export const appTemplate = `
                 <button class="save-profile" @click="saveProfile">保存用户与多人规则</button>
               </details>
             </template>
-            <p class="boundary-note">{{ !onboardingCompleted ? '新建档案不会预载固定世界或人物，也不会按性别推断性格、能力或关系；模板只是默认值，可随时修改。' : (standaloneMode ? '新建档案不会预载固定世界或人物，也不会按性别推断性格、能力或关系。' : '成人模式允许暧昧、撒娇与亲密互动，但不涉及未成年人、强迫或高风险行为。') }}</p>
+            <p class="boundary-note">{{ !onboardingCompleted ? '已为你预填默认世界与角色模板，可随时修改或清空自行填写；不会按性别推断性格、能力或关系。' : (standaloneMode ? '新建档案不会预载固定世界或人物，也不会按性别推断性格、能力或关系。' : '成人模式允许暧昧、撒娇与亲密互动，但不涉及未成年人、强迫或高风险行为。') }}</p>
           </section>
         </div>
       </transition>

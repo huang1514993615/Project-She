@@ -113,14 +113,14 @@ const mobileDefaultSettings = {
   worldVersion: 0,
   worldSyncPending: false,
   userProfile: {
-    name: "旅行者",
+    name: "",
     gender: "未指定",
     pronoun: "TA",
   },
   profile: {
     name: "",
     age: 24,
-    gender: "未指定",
+    gender: "女性",
     personality: "",
     relation: "旅伴",
     prompt: "",
@@ -1864,7 +1864,7 @@ ${String(body.worldSetting || "沿用对话自然形成的世界。").slice(0, 8
 ${String(body.storySummary || "以最近对话为准。").slice(0, 9000)}
 
 【用户档案】
-姓名或称呼：${String(userProfile.name || "旅行者").slice(0, 40)}
+姓名或称呼：${String(userProfile.name || "主角").slice(0, 40)}
 性别：${String(userProfile.gender || "未指定").slice(0, 20)}
 代词或称谓：${String(userProfile.pronoun || "TA").slice(0, 20)}
 用户档案只用于正确称呼，不得据此推断性格、能力、职业或与角色的关系；不要替用户发言。

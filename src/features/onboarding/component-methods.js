@@ -16,7 +16,7 @@ export const onboardingMethods = {
     const target = Math.min(5, Math.max(1, Number(step) || 1));
     if (target > this.onboardingStep) return;
     this.onboardingStep = target;
-    if (target === 3 && this.onboardingWorldTemplateId && !this.worldSeed.trim()) {
+    if (target === 3 && this.onboardingWorldTemplateId && !this.worldSetting.trim()) {
       this.applyLoverWorldTemplate(this.onboardingWorldTemplateId);
     }
     this.persist();
@@ -27,6 +27,7 @@ export const onboardingMethods = {
     if (!template) return;
     this.onboardingWorldTemplateId = template.id;
     if (force || !this.worldSeed.trim()) this.worldSeed = template.seed;
+    if (force || !this.worldSetting.trim()) this.worldSetting = template.world || "";
   },
   applyLoverRoleTemplate(templateId) {
     const template = LOVER_ROLE_TEMPLATES[templateId] || null;
@@ -37,14 +38,22 @@ export const onboardingMethods = {
       this.profile.gender = template.gender;
       this.syncCoreAvatarToGender();
     }
-    this.profile.relation = template.relation;
-    if (!this.profile.prompt.trim()) this.profile.prompt = template.prompt;
-    if (!this.profile.appearance.trim()) this.profile.appearance = template.appearance;
+    this.profile.prompt = template.prompt;
+    this.profile.appearance = template.appearance;
   },
   ensureOnboardingRoleTemplate() {
     if (this.onboardingRoleTemplateId) return;
-    const match = loverTemplateForGender(this.userProfile.gender);
+    const match = loverTemplateForGender(this.profile.gender);
     this.applyLoverRoleTemplate(match.defaultTemplate.id);
+  },
+  applyRoleTemplateForGender() {
+    if (this.profile.gender !== "女性" && this.profile.gender !== "男性") {
+      this.showToast("非二元/未指定可使用任意模板，也可自行填写");
+      return;
+    }
+    const match = loverTemplateForGender(this.profile.gender);
+    this.applyLoverRoleTemplate(match.defaultTemplate.id);
+    this.showToast(`已按${match.defaultTemplate.gender}角色预填默认模板`);
   },
   clearOnboardingRoleTemplate() {
     this.onboardingRoleTemplateId = "";
@@ -83,7 +92,11 @@ export const onboardingMethods = {
         this.showToast("请先填写或生成较完整的世界设定");
         return;
       }
-      this.registerWorldRevision();
+      const worldChanged = this.registerWorldRevision();
+      // 已生成过人物又改过世界，提醒重新生成，避免人物与新世界不匹配
+      if (worldChanged && this.profile.prompt.trim()) {
+        this.showToast("世界设定已更新，建议回到人物步骤重新生成人物");
+      }
     }
     if (this.onboardingStep === 4) {
       if (!this.onboardingRoleReady) {
