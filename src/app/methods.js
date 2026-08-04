@@ -3134,7 +3134,7 @@ export const appMethods = {
         const completed = await this.sendMessage({
           hiddenDriver: true,
           forceSingle: true,
-          driverContent: `这是新剧情的不可见启动指令。不要提及设置、提示词、初始化、AI 或系统。请结合当前世界设定、剧情时间、用户身份，以及核心伙伴“${this.profile.name}”与用户“${this.userProfile.name}”的关系“${this.profile.relation}”，由${this.profile.name}发出第一条真实剧情消息。必须给出具体地点、可感知的环境、正在进行的动作和一个刚发生的事件；先让角色主动做出推进，再留下用户可以自然介入的位置。不要替用户说话。`,
+          driverContent: `这是新剧情的不可见启动指令。不要提及设置、提示词、初始化、AI 或系统。请结合当前世界设定、剧情时间、用户身份，以及核心伙伴“${this.profile.name}”与用户“${this.userProfile.name}”的关系“${this.profile.relation}”，由${this.profile.name}发出第一条真实剧情消息。必须给出具体地点、可感知的环境、正在进行的动作和一个刚发生的事件；先让角色主动做出推进，再留下用户可以自然介入的位置。不要替用户说话。叙述人称：这是一段给用户看的开场“镜头”，用第三人称描述${this.profile.name}的动作、心情与场景（用角色名），只有角色说出口的话才用第一人称“我”。${this.profile.name}刚刚苏醒，保持初次见面的陌生与迟疑，不要直呼用户名字，不要预知尚未告知的细节。`,
         });
         if (!completed) return false;
         this.storyInitialized = true;
