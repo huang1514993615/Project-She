@@ -1,6 +1,22 @@
-# 夜间信箱：纯前端 AI 陪伴 H5
+# 夜航信箱 · Night Mailbox · AI 剧情陪伴互动小说
 
-这是一个 Vue 2 + Vite 的纯前端项目。网站部署后不需要 Node 服务、数据库或云函数；访问者在自己的设备上填写 API 地址和 Key，角色、对话、相册与配置也保存在该设备。
+> 纯前端、本地优先的 AI 陪伴互动剧情 H5。角色、对话、相册与配置全部保存在访问者自己的设备上，无服务器、无数据库、无云函数，隐私安全。
+
+**在线体验**：<https://huang1514993615.github.io/Project-She/>
+
+![Vue](https://img.shields.io/badge/Vue-2.7-4FC08D?logo=vuedotjs)
+![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+## 特性
+
+- **本地优先**：所有角色、对话、相册、剧情记忆与 API 配置均存于浏览器 IndexedDB/localStorage，不经过任何服务器。
+- **自带 Key 直连**：访问者填写自己的 API 地址与 Key，对话与图片模型由用户明确选择，系统不会自动选第一个。
+- **世界与剧情系统**：世界设定、剧情日程、长期记忆压缩（`storySummary` + 按角色 `roleMemories`）、多人对话（1–10 人，以用户为中心）。
+- **角色与生图**：角色档案、稳定外观、人物相册、场景工作台；生图后台任务，失败不自动重试、每次只调用一次接口。
+- **多发行版**：云端静态站点、单文件 H5（`standalone/night-mailbox.html`）、uni-app 内置网页共用同一入口，行为一致。
+- **无泄漏**：`.env*`、`data/` 个人数据与 `character-motion-engine/workspace/` 个人工作区不进入构建产物与仓库。
 
 ## 新人启动
 
