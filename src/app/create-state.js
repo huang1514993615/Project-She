@@ -18,6 +18,9 @@ export function createAppState() {
     onboardingStep: 1,
     onboardingStepLabels: ["连接", "我的身份", "世界", "人物", "确认"],
     onboardingWorldMode: "ai",
+    onboardingWorldTemplateId: "mystery-delivery-lover",
+    onboardingRoleTemplateId: "",
+    onboardingDismissed: false,
     storyInitialized: false,
     storyInitializing: false,
     worldVersion: 0,
@@ -28,6 +31,7 @@ export function createAppState() {
     profile: {
       name: "", age: 24, gender: "未指定", personality: "", relation: "旅伴",
       prompt: "", appearance: "", imagePrompt: "", avatarUrl: "", worldVersion: 0,
+      derivedProfile: {},
     },
     ensemble: {
       enabled: false,
@@ -36,6 +40,7 @@ export function createAppState() {
       friend: {
         name: "", age: 24, gender: "未指定", personality: "", relation: "",
         prompt: "", appearance: "", imagePrompt: "", avatarUrl: "",
+        derivedProfile: {},
       },
       customRoles: [],
       temporaryRoles: [],
@@ -110,6 +115,11 @@ export function createAppState() {
     characterImageStylePreset: "",
     characterImageStyleCustom: "",
 
+    tokenUsage: null,
+    tokenUsageLoading: false,
+    tokenPriceInput: "",
+    tokenPriceOutput: "",
+
     visualStateEditorId: "",
     visualBatchSubmitting: false,
     visualStatePreview: null,
@@ -140,6 +150,7 @@ export function createAppState() {
     roleMemories: {},
     autoCompress: true,
     autoCompressThreshold: 40,
+    autoCompressFailStreak: 0,
     summaryUpdatedAt: "",
     summarySaving: false,
     summarizing: false,

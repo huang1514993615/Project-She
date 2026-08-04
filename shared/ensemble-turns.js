@@ -11,7 +11,8 @@ export function maxEnsembleMessages(maxParticipants = 3) {
 }
 
 export function maxEnsembleOutputTokens(maxParticipants = 3) {
-  return Math.min(12000, 1200 + maxEnsembleMessages(maxParticipants) * 260);
+  const participantLimit = Math.min(10, Math.max(1, Math.trunc(Number(maxParticipants) || 3)));
+  return Math.min(24000, 2000 + maxEnsembleMessages(participantLimit) * 420);
 }
 
 export function limitEnsembleTurns(turns, maxParticipants = 3) {

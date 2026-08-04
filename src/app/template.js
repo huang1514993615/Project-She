@@ -17,6 +17,13 @@ export const appTemplate = `
         </div>
       </header>
 
+      <button v-if="setupReminder" type="button" class="setup-reminder-banner" @click="openSetupReminder">
+        <span>●</span>
+        <b>{{ setupReminder }}</b>
+        <small>点击继续配置 ›</small>
+        <i class="setup-reminder-dismiss" @click.stop="dismissSetupReminder" aria-label="关闭剧情提醒">×</i>
+      </button>
+
       <div class="workspace" :class="{ 'prompt-mode': mobileTab === 'prompt', 'image-mode': mobileTab === 'image', 'data-mode': mobileTab === 'data', 'connection-mode': mobileTab === 'connection' }">
         <aside class="profile-panel" :class="{ 'mobile-active': mobileTab === 'profile' }">
           <button type="button" class="portrait-card portrait-button" @click="openRoleDetail('primary')" aria-label="查看主角色详情">
@@ -424,7 +431,7 @@ export const appTemplate = `
               <label class="memory-threshold">触发阈值 <b>{{ autoCompressThreshold }} 条</b><input v-model.number="autoCompressThreshold" type="range" min="20" max="120" step="10" /></label>
             </div>
             <div class="prompt-help">
-              <span>{{ summaryUpdatedAt ? '最近总结：' + formatSummaryTime(summaryUpdatedAt) : '尚未生成剧情摘要' }}</span>
+              <span>{{ summaryUpdatedAt ? '最近总结：' + formatSummaryTime(summaryUpdatedAt) : (storySummary.trim() ? '已有手动保存的摘要' : '尚未生成剧情摘要') }}</span>
               <span>摘要与设置保存在当前设备</span>
             </div>
             <div class="prompt-actions memory-actions">
@@ -497,10 +504,10 @@ export const appTemplate = `
 
           <nav class="album-tabs" aria-label="图片相册分类">
             <button type="button" :class="{ active: galleryTab === 'scene' }" @click="galleryTab = 'scene'">
-              <span>场景相册</span><em>{{ sceneImageJobs.length }}</em>
+              <span>场景相册</span><em>{{ sceneAlbumCount }}</em>
             </button>
             <button type="button" :class="{ active: galleryTab === 'character' }" @click="galleryTab = 'character'">
-              <span>人物相册</span><em>{{ characterImageJobs.length }}</em>
+              <span>人物相册</span><em>{{ characterAlbumCount }}</em>
             </button>
           </nav>
 
@@ -576,7 +583,7 @@ export const appTemplate = `
           <section class="image-job-gallery">
             <div class="section-label">
               <span>{{ galleryTab === 'scene' ? '按时间保存的剧情场景' : '按人物保存的形象档案' }}</span>
-              <em>{{ galleryJobs.length }}</em>
+              <em>{{ galleryTab === 'scene' ? sceneAlbumCount : characterAlbumCount }} 张成功 · {{ galleryJobs.length }} 个任务</em>
             </div>
             <p v-if="!galleryJobs.length" class="image-gallery-empty">
               {{ galleryTab === 'scene' ? '还没有成功的场景图片。生成中的任务会显示在这里，失败记录不会进入相册。' : '还没有成功的人物图片。请从人物详情发起生成。' }}
@@ -592,7 +599,7 @@ export const appTemplate = `
                 <small>{{ job.status === 'failed' ? '生成失败' : (job.status === 'queued' ? '排队中' : '生成中') }}</small>
               </div>
               <div class="image-job-copy">
-                <div><b>{{ job.archive?.title || job.targetName || (isCharacterAlbumItem(job) ? '角色形象' : '当前剧情场景') }}</b><time>{{ formatSummaryTime(job.archive?.capturedAt || job.updatedAt) }}</time></div>
+                <div><b>{{ imageJobTitle(job) }}</b><time>{{ formatSummaryTime(job.archive?.capturedAt || job.updatedAt) }}</time></div>
                 <p :class="{ 'image-job-error': job.status === 'failed' }">{{ imageJobStatusText(job) }}</p>
                 <p v-if="isCharacterAlbumItem(job)" class="album-summary">
                   {{ [job.archive?.relation, job.archive?.personality].filter(Boolean).join(' · ') || job.archive?.introduction || '人物资料快照保存在本地相册。' }}
@@ -757,6 +764,39 @@ export const appTemplate = `
                   <p>{{ entry.message }}</p><pre v-if="entry.detail">{{ entry.detail }}</pre>
                 </article>
               </div>
+            </article>
+
+            <article class="token-usage-card data-page-card">
+              <div class="data-card-heading">
+                <div><b>Token 用量</b><small>仅统计对话、生图提示词整理和记忆压缩，不包含图片本身费用</small></div>
+                <span v-if="tokenUsage && (tokenUsage.today.estimated || tokenUsage.last7Days.estimated || tokenUsage.cumulative.estimated)">含估算</span>
+              </div>
+              <div v-if="tokenUsageLoading && !tokenUsage" class="token-usage-empty">正在读取用量…</div>
+              <template v-else-if="tokenUsage">
+                <div class="token-usage-summary">
+                  <span><b>{{ formatTokenCount(tokenUsage.today.total) }}</b><small>今日 · 输入 {{ formatTokenCount(tokenUsage.today.input) }} / 输出 {{ formatTokenCount(tokenUsage.today.output) }}</small></span>
+                  <span><b>{{ formatTokenCount(tokenUsage.last7Days.total) }}</b><small>近 7 天</small></span>
+                  <span><b>{{ formatTokenCount(tokenUsage.cumulative.total) }}</b><small>累计</small></span>
+                </div>
+                <p v-if="tokenUsage.today.estimated || tokenUsage.last7Days.estimated || tokenUsage.cumulative.estimated" class="token-estimate-note">部分接口没有返回 usage，相关数字为按字符估算，不代表精确值。</p>
+                <div class="token-category-stats">
+                  <span><b>{{ formatTokenCount(tokenUsage.categories?.chat?.total || 0) }}</b><small>对话</small></span>
+                  <span><b>{{ formatTokenCount(tokenUsage.categories?.['image-prompt']?.total || 0) }}</b><small>生图提示词</small></span>
+                  <span><b>{{ formatTokenCount(tokenUsage.categories?.summary?.total || 0) }}</b><small>记忆压缩</small></span>
+                </div>
+                <label class="field-label token-price-label">模型单价（元 / 百万 token，可选）
+                  <div class="token-price-row">
+                    <input v-model="tokenPriceInput" type="number" min="0" step="0.01" placeholder="输入单价" aria-label="每百万输入 token 价格" />
+                    <input v-model="tokenPriceOutput" type="number" min="0" step="0.01" placeholder="输出单价" aria-label="每百万输出 token 价格" />
+                  </div>
+                </label>
+                <p class="token-cost-line">估算费用：今日 {{ formatCost(tokenUsage.estimatedCost.today, tokenUsage) }} · 近 7 天 {{ formatCost(tokenUsage.estimatedCost.last7Days, tokenUsage) }} · 累计 {{ formatCost(tokenUsage.estimatedCost.cumulative, tokenUsage) }}</p>
+                <div class="data-card-actions">
+                  <button type="button" @click="saveTokenPrice" :disabled="tokenUsageLoading">保存单价并刷新</button>
+                  <button type="button" @click="refreshTokenUsage" :disabled="tokenUsageLoading">刷新</button>
+                </div>
+              </template>
+              <p v-else class="token-usage-empty">尚未产生模型请求。发起对话、整理生图提示词或压缩记忆后，用量会显示在这里。</p>
             </article>
           </div>
         </section>
@@ -1000,6 +1040,14 @@ export const appTemplate = `
               <div class="ensemble-fields">
                 <label class="field-label">名字<input v-model.trim="selectedRole.name" maxlength="12" /></label>
                 <div class="derived-role-state"><b>AI 派生状态</b><span>{{ roleDerivedSummary(selectedRole) }}</span><small>{{ roleDerivedDetail(selectedRole) }}</small></div>
+              </div>
+              <div class="role-age-fields">
+                <label class="field-label">实际年龄（岁）
+                  <input v-model.number="selectedRole.derivedProfile.initialActualAge" type="number" min="0" max="200" placeholder="留空=未知，由 AI 提取" @change="normalizeRoleAge(selectedRole)" />
+                </label>
+                <label class="field-label">外表年龄（岁，可选）
+                  <input v-model.number="selectedRole.derivedProfile.initialApparentAge" type="number" min="0" max="200" placeholder="留空=同实际年龄" @change="normalizeRoleAge(selectedRole)" />
+                </label>
               </div>
               <label class="field-label">性别
                 <select v-model="selectedRole.gender">
@@ -1383,14 +1431,14 @@ export const appTemplate = `
       </transition>
 
       <transition name="fade">
-        <div v-if="settingsOpen" class="modal-backdrop" @click.self="onboardingCompleted ? settingsOpen = false : null">
+        <div v-if="settingsOpen" class="modal-backdrop" @click.self="settingsOpen = false">
           <section class="settings-sheet character-manager-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-            <button v-if="onboardingCompleted || !standaloneMode" class="modal-close" @click="settingsOpen = false" aria-label="关闭">×</button>
-            <div class="eyebrow">{{ !onboardingCompleted && standaloneMode ? 'WELCOME' : 'CHARACTERS' }}</div>
-            <h2 id="settings-title">{{ !onboardingCompleted && standaloneMode ? '建立你的故事档案' : '人物管理' }}</h2>
-            <p class="settings-intro">{{ !onboardingCompleted && standaloneMode ? '先连接模型，再确定世界和人物。确认前不会写入固定角色或自动开始剧情。' : '先浏览全部角色，再点击一张角色卡片编辑设定、长相、人物提示词或相册。' }}</p>
+            <button class="modal-close" @click="onboardingCompleted ? settingsOpen = false : dismissOnboarding()" aria-label="关闭">×</button>
+            <div class="eyebrow">{{ !onboardingCompleted ? 'WELCOME' : 'CHARACTERS' }}</div>
+            <h2 id="settings-title">{{ !onboardingCompleted ? '建立你的故事档案' : '人物管理' }}</h2>
+            <p class="settings-intro">{{ !onboardingCompleted ? '先连接模型，再确定世界和人物。模板只是默认值，你可以随时修改；也可以先关闭稍后再配置。' : '先浏览全部角色，再点击一张角色卡片编辑设定、长相、人物提示词或相册。' }}</p>
 
-            <template v-if="!onboardingCompleted && standaloneMode">
+            <template v-if="!onboardingCompleted">
               <nav class="onboarding-progress" aria-label="初始化进度">
                 <button v-for="(label, index) in onboardingStepLabels" :key="label" type="button" :class="{ active: onboardingStep === index + 1, done: onboardingStep > index + 1 }" :disabled="index + 1 > onboardingStep" @click="goToOnboardingStep(index + 1)"><i>{{ index + 1 }}</i><span>{{ label }}</span></button>
               </nav>
@@ -1431,6 +1479,11 @@ export const appTemplate = `
                   <button type="button" :class="{ active: onboardingWorldMode === 'ai' }" @click="onboardingWorldMode = 'ai'">AI 帮我建立</button>
                   <button type="button" :class="{ active: onboardingWorldMode === 'manual' }" @click="onboardingWorldMode = 'manual'">我自己填写</button>
                 </div>
+                <button type="button" class="onboarding-template-card" :class="{ active: onboardingWorldTemplateId === 'mystery-delivery-lover' }" @click="applyLoverWorldTemplate('mystery-delivery-lover', true)">
+                  <span>◆</span>
+                  <b>神秘快递 · AI 恋人</b>
+                  <small>现代都市，你收到一个无寄件人的快递，打开是一个远超时代的仿真人 AI 恋人，只能直流电充电，能力随相处逐步开发。点击一键填入创作方向。</small>
+                </button>
                 <label v-if="onboardingWorldMode === 'ai'" class="field-label">告诉 AI 你想要的世界
                   <textarea v-model.trim="worldSeed" maxlength="1000" rows="4" placeholder="例如：现代沿海小城，现实日常中带一点悬疑，不要超能力；故事从一间旧书店开始。"></textarea>
                 </label>
@@ -1439,6 +1492,7 @@ export const appTemplate = `
                 </label>
                 <button v-if="onboardingWorldMode === 'ai'" type="button" class="onboarding-ai-action" @click="generateWorldSetting" :disabled="worldGenerating || !worldSeed.trim()">{{ worldGenerating ? 'AI 正在建立世界…' : 'AI 生成 / 完善世界设定' }}</button>
                 <p class="onboarding-note">AI 结果会先显示差异预览，只有确认后才写入。你也可以直接编辑上面的完整设定。</p>
+                <p v-if="worldSetting.trim().length < 60" class="onboarding-length-hint">完整世界设定至少需要 60 字，当前 {{ worldSetting.trim().length }} 字。</p>
                 <div class="onboarding-actions"><button type="button" @click="goToOnboardingStep(2)">上一步</button><button type="button" class="primary" @click="advanceOnboarding" :disabled="worldSetting.trim().length < 60">确认世界，创建人物</button></div>
               </section>
 
@@ -1450,6 +1504,14 @@ export const appTemplate = `
                     <select v-model="profile.gender" @change="syncCoreAvatarToGender"><option>女性</option><option>男性</option><option>非二元</option><option>未指定</option></select>
                   </label>
                 </div>
+                <label class="field-label">恋人模板（可选，一键填入人物要求）
+                  <select :value="onboardingRoleTemplateId" @change="applyLoverRoleTemplate($event.target.value)">
+                    <option value="" disabled>请选择一个模板</option>
+                    <option v-for="template in onboardingRoleTemplateOptions()" :key="template.id" :value="template.id">{{ template.label }}</option>
+                  </select>
+                  <small>已按你的性别预选了默认模板；也可切换或清空自行填写。</small>
+                </label>
+                <button v-if="onboardingRoleTemplateId" type="button" class="onboarding-template-clear" @click="clearOnboardingRoleTemplate">清除模板，完全自己写</button>
                 <label class="field-label">与我的初始关系
                   <select v-model="profile.relation"><option>旅伴</option><option>默契搭子</option><option>知心朋友</option><option>成年恋人</option><option>妻子</option><option>丈夫</option><option>姐姐</option><option>哥哥</option><option>妹妹</option><option>弟弟</option><option>自定义关系</option></select>
                 </label>
@@ -1547,7 +1609,7 @@ export const appTemplate = `
                 <button class="save-profile" @click="saveProfile">保存用户与多人规则</button>
               </details>
             </template>
-            <p class="boundary-note">{{ standaloneMode ? '新建档案不会预载固定世界或人物，也不会按性别推断性格、能力或关系。' : '成人模式允许暧昧、撒娇与亲密互动，但不涉及未成年人、强迫或高风险行为。' }}</p>
+            <p class="boundary-note">{{ !onboardingCompleted ? '新建档案不会预载固定世界或人物，也不会按性别推断性格、能力或关系；模板只是默认值，可随时修改。' : (standaloneMode ? '新建档案不会预载固定世界或人物，也不会按性别推断性格、能力或关系。' : '成人模式允许暧昧、撒娇与亲密互动，但不涉及未成年人、强迫或高风险行为。') }}</p>
           </section>
         </div>
       </transition>

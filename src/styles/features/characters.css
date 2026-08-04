@@ -336,7 +336,7 @@ button.message-avatar {
 }
 
 .image-key-channel button {
-  min-height: 34px;
+  min-height: 40px;
   padding: 0 12px;
   color: #706a78;
   background: #fff;
@@ -1225,7 +1225,10 @@ button.message-avatar {
 .portrait-preview-backdrop {
   position: fixed;
   z-index: 100;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   place-items: center;
   padding: 24px;

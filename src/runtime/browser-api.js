@@ -64,6 +64,8 @@ import {
 const SETTINGS_KEY = "night-mailbox-mobile-settings";
 const HISTORY_KEY = "night-mailbox-mobile-history";
 const IMAGE_JOBS_KEY = "night-mailbox-mobile-image-jobs";
+const TOKEN_USAGE_KEY = "night-mailbox-token-usage";
+const TOKEN_USAGE_MAX_ENTRIES = 20000;
 const BACKUP_FORMAT = "night-mailbox-backup";
 const BACKUP_VERSION = 1;
 const IMAGE_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
@@ -106,6 +108,7 @@ const mobileDefaultSettings = {
   scenarioVersion: "world-first-onboarding-v2",
   onboardingCompleted: false,
   onboardingStep: 1,
+  onboardingDismissed: false,
   storyInitialized: false,
   worldVersion: 0,
   worldSyncPending: false,
@@ -125,6 +128,7 @@ const mobileDefaultSettings = {
     imagePrompt: "",
     avatarUrl: "",
     worldVersion: 0,
+    derivedProfile: {},
   },
   ensemble: {
     enabled: false,
@@ -140,6 +144,7 @@ const mobileDefaultSettings = {
       appearance: "",
       imagePrompt: "",
       avatarUrl: "",
+      derivedProfile: {},
     },
     customRoles: [],
     temporaryRoles: [],
@@ -223,6 +228,118 @@ function mergeSettings(value) {
     storyClock: normalizeStoryClock(input.storyClock || defaultSettings.storyClock),
     storyEvents: normalizeStoryEvents(input.storyEvents),
   };
+}
+
+// ---------- Token 用量统计（只存本地，不写源码/构建产物） ----------
+function estimateTokens(text) {
+  const value = String(text || "");
+  let chinese = 0;
+  let other = 0;
+  for (const character of value) {
+    if (/[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(character)) chinese += 1;
+    else other += 1;
+  }
+  return Math.max(1, Math.round(chinese * 0.8 + other / 4));
+}
+
+function loadTokenUsage() {
+  const stored = readStoredJson(TOKEN_USAGE_KEY, null);
+  return stored && typeof stored === "object" && Array.isArray(stored.entries)
+    ? stored
+    : { version: 1, entries: [], pricePerMillionInput: 0, pricePerMillionOutput: 0, updatedAt: "" };
+}
+
+function saveTokenUsage(data) {
+  storageSet(TOKEN_USAGE_KEY, data);
+}
+
+function recordTokenUsage(category, usage, inputText, outputText, model) {
+  try {
+    const source = usage && typeof usage === "object" ? usage : {};
+    const promptTokens = Number(source.prompt_tokens);
+    const completionTokens = Number(source.completion_tokens);
+    const hasPrompt = Number.isFinite(promptTokens) && promptTokens > 0;
+    const hasCompletion = Number.isFinite(completionTokens) && completionTokens > 0;
+    const data = loadTokenUsage();
+    data.entries.push({
+      ts: Date.now(),
+      category: String(category || "chat"),
+      input: hasPrompt ? Math.round(promptTokens) : estimateTokens(inputText),
+      output: hasCompletion ? Math.round(completionTokens) : estimateTokens(outputText),
+      estimated: !(hasPrompt && hasCompletion),
+      model: String(model || "").slice(0, 120),
+    });
+    if (data.entries.length > TOKEN_USAGE_MAX_ENTRIES) {
+      data.entries = data.entries.slice(-TOKEN_USAGE_MAX_ENTRIES);
+    }
+    data.updatedAt = new Date().toISOString();
+    saveTokenUsage(data);
+  } catch {
+    // 用量统计失败不应影响对话主流程
+  }
+}
+
+function summarizeUsage(entries) {
+  const summary = { input: 0, output: 0, total: 0, estimated: false };
+  for (const entry of entries) {
+    summary.input += Math.max(0, Number(entry?.input) || 0);
+    summary.output += Math.max(0, Number(entry?.output) || 0);
+    if (entry?.estimated) summary.estimated = true;
+  }
+  summary.total = summary.input + summary.output;
+  return summary;
+}
+
+function aggregateTokenUsage() {
+  const data = loadTokenUsage();
+  const now = new Date();
+  const todayKey = now.toDateString();
+  const cutoff = now.getTime() - 6 * 24 * 60 * 60 * 1000;
+  const todayEntries = [];
+  const weekEntries = [];
+  const byCategory = { chat: [], "image-prompt": [], summary: [] };
+  for (const entry of data.entries) {
+    if (new Date(entry.ts).toDateString() === todayKey) todayEntries.push(entry);
+    if (entry.ts >= cutoff) weekEntries.push(entry);
+    const category = String(entry.category || "chat");
+    if (byCategory[category]) byCategory[category].push(entry);
+    else byCategory[category] = [entry];
+  }
+  const categorySummaries = {};
+  for (const [category, entries] of Object.entries(byCategory)) {
+    if (entries.length) categorySummaries[category] = summarizeUsage(entries);
+  }
+  const priceInput = Math.max(0, Number(data.pricePerMillionInput) || 0);
+  const priceOutput = Math.max(0, Number(data.pricePerMillionOutput) || 0);
+  const estimateCost = (summary) => (summary.input / 1e6) * priceInput + (summary.output / 1e6) * priceOutput;
+  const today = summarizeUsage(todayEntries);
+  const last7Days = summarizeUsage(weekEntries);
+  const cumulative = summarizeUsage(data.entries);
+  return {
+    pricePerMillionInput: priceInput,
+    pricePerMillionOutput: priceOutput,
+    today,
+    last7Days,
+    cumulative,
+    categories: categorySummaries,
+    estimatedCost: {
+      today: estimateCost(today),
+      last7Days: estimateCost(last7Days),
+      cumulative: estimateCost(cumulative),
+    },
+    updatedAt: data.updatedAt || "",
+  };
+}
+
+function handleUsage(body, method) {
+  if (method === "POST") {
+    const data = loadTokenUsage();
+    data.pricePerMillionInput = Math.max(0, Number(body.pricePerMillionInput) || 0);
+    data.pricePerMillionOutput = Math.max(0, Number(body.pricePerMillionOutput) || 0);
+    data.updatedAt = new Date().toISOString();
+    saveTokenUsage(data);
+  }
+  return jsonResponse(aggregateTokenUsage());
 }
 
 function legacyStorageGet(key) {
@@ -1355,7 +1472,7 @@ function parseSseChatCompletion(value) {
     transport: "sse",
     chunk_count: chunkCount,
     done_received: doneReceived,
-    stream_complete: doneReceived || Boolean(finishReason),
+    stream_complete: doneReceived || (Boolean(finishReason) && finishReason !== "length"),
     reasoning_content_length: reasoningContentLength,
   };
 }
@@ -1397,6 +1514,7 @@ async function callChatModel(body, messages, options = {}) {
   const provider = getProvider(body);
   if (!provider.key || !provider.baseUrl) throw new Error(`${provider.id} 尚未在 App API 设置中配置`);
   if (!provider.model) throw new Error("请先查询模型目录并选择一个对话模型");
+  const inputTextForEstimate = JSON.stringify(messages || []);
   const payload = {
     model: options.model || provider.model,
     messages,
@@ -1414,14 +1532,15 @@ async function callChatModel(body, messages, options = {}) {
       timeout: options.timeout || 180000,
     });
   let response;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       response = await request();
-      if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status) || attempt === 1) break;
+      if (response.ok || ![408, 429, 500, 502, 503, 504].includes(response.status) || attempt === 2) break;
     } catch (error) {
-      if (attempt === 1) throw error;
+      if (attempt === 2) throw error;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 800));
+    const retryDelay = response?.status === 503 || response?.status === 429 ? 2500 : 800;
+    await new Promise((resolve) => window.setTimeout(resolve, retryDelay));
   }
   if (!response.ok) {
     throw modelResponseError(
@@ -1521,6 +1640,7 @@ async function callChatModel(body, messages, options = {}) {
       },
     );
   }
+  recordTokenUsage(options.category, result?.usage, inputTextForEstimate, content, payload.model);
   return content;
 }
 
@@ -1528,22 +1648,23 @@ async function repairMultiTurns(body, content, maxParticipants) {
   const repairedContent = await callChatModel(body, [
     {
       role: "system",
-      content: `你是多人对话 JSON 格式修复器。把用户提供的模型回复整理成一个 JSON 对象，不添加解释文字。
+      content: `你是多人对话 JSON 格式修复器。把用户提供的模型回复整理成一个 JSON 对象，只输出这个 JSON，不添加任何解释、说明或前后缀文字，不包裹在 \`\`\`json 代码块里，不使用 JSON Output / JSON mode 等结构化输出功能。
 
-示例输出：
-{"scene":"共享场景","turns":[{"speaker":"岚","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":""},{"speaker":"林夏","scene":"","mood":"心情","action":"动作","dialogue":"台词","progression":"两人已经开始执行的下一步行动及其直接影响"}]}
+必须直接以 { 开头、以 } 结尾输出下面结构（键名英文半角、值中文、每个字段都出现、没有内容用空字符串 "" 占位、字符串内不要出现未转义的双引号、不要单引号、不要残留结尾逗号）：
+{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":"","visual":{"preferredStateId":"状态ID","emotion":"情绪","action":"动作","intensity":0.7,"sequence":[]}}]}
 
 最多保留 ${maxParticipants} 位不同角色和 ${maxEnsembleMessages(maxParticipants)} 条消息。同一角色可以多次回复，但每条只能包含该角色自己的动作和台词。按实际发生顺序排列，只有最后一条 progression 非空。只整理原回复里已经存在的剧情，不引入无关人物或新世界。`,
     },
     {
       role: "user",
-      content: `请修复下面的多人回复：\n\n${String(content || "").slice(0, 30000)}`,
+      content: `请修复下面的多人回复，只输出整理后的 JSON：\n\n${String(content || "").slice(0, 30000)}`,
     },
   ], {
     temperature: 0.1,
     maxTokens: maxEnsembleOutputTokens(maxParticipants),
     expectsStructuredOutput: true,
     stream: false,
+    category: "chat",
   });
   return parseMultiTurns(repairedContent, maxParticipants);
 }
@@ -1721,7 +1842,16 @@ ${recentContext}`;
   const visualStateIds = DEFAULT_ROLE_VISUAL_STATES.map((state) => state.id).join(", ");
   const multi = body.responseMode === "multi" && ensemble.enabled !== false
     ? `\n【多人返回结构】
-严格返回 JSON：{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"","mood":"心情","action":"动作","dialogue":"台词","progression":"明确推进","visual":{"preferredStateId":"固定立绘状态","emotion":"情绪标签","action":"动作标签","intensity":0.7}}]}。
+必须只输出一个合法的 JSON 对象：直接以 { 开头、以 } 结尾，不包裹在 \`\`\`json 代码块里，不缩进到其他标记内，不使用 JSON Output / JSON mode 等结构化输出功能，不输出任何 JSON 之外的解释、说明、前后缀或问候语。
+
+严格结构（键名必须使用英文半角，值使用中文）：
+{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":"","visual":{"preferredStateId":"固定立绘状态","emotion":"情绪标签","action":"动作标签","intensity":0.7,"sequence":[]}}]}
+
+字段规则：
+- turns 不能是空数组；每个 turn 的 speaker 必须来自人物名册，dialogue 只写该角色自己的台词。
+- scene/mood/action/dialogue/progression/visual 每个字段都要出现，没有内容就用空字符串 "" 占位，不要省略字段。
+- 所有值用半角引号包裹，字符串内不要出现未转义的双引号；不要使用单引号代替双引号。
+- 只有最后一条 progression 非空；turns 内部不要残留逗号结尾。
 本轮最多出现 ${Math.min(10, Math.max(1, Number(ensemble.maxTurns) || 3))} 位不同角色，turns 最多 ${maxEnsembleMessages(ensemble.maxTurns)} 条，但这是安全上限，不要为了用满而拆句或凑消息。同一 speaker 可以在互动后再次回复，但每条只能写自己的动作和台词，不能在 dialogue 里代写其他角色台词；换人必须另建 turn。严格按时间顺序排列：后一条要自然承接前一条并带来新信息、新反应或新动作，避免重复，只有连续动作确实需要分段时才让同一 speaker 连续出现。只安排当前场景需要的人物，优先使用能完整推动剧情的最短轮次；只有最后一条 progression 非空，完成推进后立即停下让用户接话。`
     : "";
   return `【提示词优先级】
@@ -1859,6 +1989,7 @@ async function handleChat(body) {
       temperature: multiMessageMode ? 0.65 : 0.8,
       maxTokens: multiMessageMode ? maxEnsembleOutputTokens(maxParticipants) : 2200,
       expectsStructuredOutput: multiMessageMode,
+      category: "chat",
     });
   } catch (error) {
     if (error?.diagnostic?.stage !== "empty-content") throw error;
@@ -1900,17 +2031,59 @@ async function handleChat(body) {
     }
     if (!turns.length) {
       const selectedProvider = getProvider(body);
+      let degraded = false;
+      let degradeFailure = null;
+      try {
+        const singleContent = await callChatModel(body, [
+          {
+            role: "system",
+            content: buildChatSystem(
+              { ...body, responseMode: "single", retrievedMemory },
+              messages.map((message) => message.content).join("\n"),
+            ),
+          },
+          ...messages,
+        ], {
+          temperature: 0.8,
+          maxTokens: 2200,
+          stream: false,
+          category: "chat",
+        });
+        const fallbackSpeaker = body.profile?.name || "岚";
+        const trimmedSingle = String(singleContent || "").trim();
+        if (trimmedSingle) {
+          turns = [{ speaker: fallbackSpeaker, content: trimmedSingle }];
+          degraded = true;
+        }
+      } catch (error) {
+        degradeFailure = {
+          message: String(error?.message || error).slice(0, 1000),
+          diagnostic: error?.diagnostic || null,
+        };
+      }
+      if (!turns.length) {
+        return jsonResponse({
+          error: "模型回复无法整理为有效的多人对话，请重试本轮",
+          diagnostic: {
+            stage: "multi-json-invalid",
+            provider: selectedProvider.id,
+            model: selectedProvider.model,
+            rawModelContent: String(content || "").slice(0, 100000),
+            rawModelContentLength: String(content || "").length,
+            repairFailure,
+            degradeFailure,
+          },
+        }, 502);
+      }
       return jsonResponse({
-        error: "模型回复无法整理为有效的多人对话，请重试本轮",
-        diagnostic: {
-          stage: "multi-json-invalid",
-          provider: selectedProvider.id,
-          model: selectedProvider.model,
-          rawModelContent: String(content || "").slice(0, 100000),
-          rawModelContentLength: String(content || "").length,
-          repairFailure,
-        },
-      }, 502);
+        turns,
+        provider: "chat",
+        model: getProvider(body).model,
+        maxTurns: maxParticipants,
+        repaired: false,
+        degraded,
+        degradeReason: "multi-json-invalid",
+      });
     }
     return jsonResponse({
       turns,
@@ -1956,7 +2129,7 @@ ${actionStyle ? `用户常用行动倾向是“${actionStyle}”：观察型=先
 ${scheduleContext}`,
       },
       { role: "user", content: transcript || "请给出三条具体行动。" },
-    ], { temperature: 0.7, maxTokens: 260, timeout: 90000 });
+    ], { temperature: 0.7, maxTokens: 260, timeout: 90000, category: "chat" });
     const parsed = parseLooseJsonArray(content)
       || parseLooseJsonObject(content, (value) => Array.isArray(value?.suggestions));
     const suggestions = (Array.isArray(parsed) ? parsed : parsed?.suggestions)
@@ -1993,6 +2166,7 @@ async function handleStoryEventDecision(body) {
         maxTokens: 850,
         timeout: 90000,
         expectsStructuredOutput: true,
+        category: "chat",
       },
     );
     return jsonResponse(parseStoryEventDecision(content, {
@@ -2019,7 +2193,7 @@ async function handleWorld(body) {
       role: "user",
       content: `现有设定：${String(body.existing || "暂无").slice(0, 8000)}\n\n草稿：${String(body.seed || body.existing || "现代都市多人互动").slice(0, 5000)}`,
     },
-  ], { temperature: 0.65, maxTokens: 2400 });
+  ], { temperature: 0.65, maxTokens: 2400, category: "chat" });
   return jsonResponse({ worldSetting: content.slice(0, 12000), provider: "chat" });
 }
 
@@ -2037,7 +2211,7 @@ normal 表示实际和外表每过365剧情天增加一岁；fixed 表示实际�
   const content = await callChatModel(body, [
     { role: "system", content: system },
     { role: "user", content: user },
-  ], { temperature: 0.45, maxTokens: 1800 });
+  ], { temperature: 0.45, maxTokens: 4000, stream: false, category: "chat" });
   const parsed = parseLooseJsonObject(content, (value) => typeof value?.prompt === "string");
   if (!parsed?.prompt) throw new Error("模型没有返回有效角色档案");
   return jsonResponse({ role: parsed, provider: "chat" });
@@ -2130,43 +2304,72 @@ async function handleSummary(body) {
   const transcript = messages
     .map((message) => `${message.role === "user" ? "用户" : message.speaker || body.profile?.name || "角色"}：${message.content}`)
     .join("\n\n")
-    .slice(-90000);
+    .slice(-60000);
   const rosterRoles = roleRoster(body.profile || {}, body.ensemble || {});
   const roster = rosterRoles
     .map((role) => `${role.id}｜${role.name}｜${roleDerivedLabel(role, body.storyClock?.day || 1)}｜${role.gender || "未指定"}｜${role.relation || ""}`)
     .join("\n");
-  const content = await callChatModel(body, [
+  const primaryContent = await callChatModel(body, [
     {
       role: "system",
       content: `你是本地互动剧情的长期记忆整理器。把旧摘要与本轮对话整理成一个 JSON 对象，不要输出 JSON 之外的解释。
 
 必须使用这个格式：
-{"storySummary":"900-2200字，包含【当前场景】【角色状态】【关键剧情】【用户偏好】【未完成事项】【连续性约束】","episode":{"title":"本段剧情标题","summary":"200-700字完整事件摘要","keywords":["地点","人物","物品"]},"roleMemories":[{"roleId":"永久角色ID","relationshipMemory":"与用户和其他角色的稳定关系","importantEvents":"不可遗忘的经历","currentStatus":"当前状态","lastKnownScene":"最后已知地点与在场情况","commitments":"尚未完成的约定或任务"}],"facts":[{"type":"relationship|event|promise|item|location|preference|secret|status","subjectRoleIds":["角色ID"],"content":"一条可独立检索的事实","importance":1,"status":"active","storyDay":1}]}
+{"storySummary":"900-2200字，包含【当前场景】【角色状态】【关键剧情】【用户偏好】【未完成事项】【连续性约束】","roleMemories":[{"roleId":"永久角色ID","relationshipMemory":"与用户和其他角色的稳定关系","importantEvents":"不可遗忘的经历","currentStatus":"当前状态","lastKnownScene":"最后已知地点与在场情况","commitments":"尚未完成的约定或任务"}],"episode":{"title":"本段剧情标题","summary":"200-700字完整事件摘要","keywords":["地点","人物","物品"]},"facts":[{"type":"relationship|event|promise|item|location|preference|secret|status","subjectRoleIds":["角色ID"],"content":"一条可独立检索的事实","importance":1,"status":"active","storyDay":1}]}
 
-永久名册中的角色全部保留，即使本段没有登场也必须出现在 roleMemories；只能使用名册里的稳定角色ID。不要把推测写成既定事实，不要把已取消事项保留为 active。`,
+storySummary 和 roleMemories 必须完整输出；episode 与 facts 尽量给出，给不出可以省略，我会在本地补全。永久名册中的角色全部保留，即使本段没有登场也必须出现在 roleMemories；只能使用名册里的稳定角色ID。不要把推测写成既定事实，不要把已取消事项保留为 active。`,
     },
     {
       role: "user",
-      content: `永久名册：\n${roster}\n\n当前剧情时间：${formatStoryMoment(normalizeStoryClock(body.storyClock))}\n\n旧摘要：${body.existingSummary || "暂无"}\n\n旧角色记忆：${JSON.stringify(body.existingRoleMemories || {}).slice(0, 18000)}\n\n本轮对话：\n${transcript}`,
+      content: `永久名册：\n${roster}\n\n当前剧情时间：${formatStoryMoment(normalizeStoryClock(body.storyClock))}\n\n旧摘要：${String(body.existingSummary || "暂无").slice(0, 12000)}\n\n旧角色记忆：${JSON.stringify(body.existingRoleMemories || {}).slice(0, 12000)}\n\n本轮对话：\n${transcript}`,
     },
   ], {
     temperature: 0.2,
     maxTokens: 5200,
     stream: false,
     expectsStructuredOutput: true,
+    category: "summary",
   });
-  const parsed = parseLooseJsonObject(content, (value) =>
+  const acceptSummaryShape = (value) =>
     typeof value?.storySummary === "string"
-    && value?.episode
-    && Array.isArray(value?.roleMemories),
-  );
+    && (Array.isArray(value?.roleMemories) || (value?.roleMemories && typeof value.roleMemories === "object"));
+  let parsed = parseLooseJsonObject(primaryContent, acceptSummaryShape);
+  if (!parsed) {
+    const repairContent = await callChatModel(body, [
+      {
+        role: "system",
+        content: `你是剧情记忆压缩器。把旧摘要与本轮对话压缩成一个 JSON 对象，只输出这个 JSON，不添加任何解释、前后缀或代码块，不使用 JSON Output / JSON mode 等结构化输出功能。必须直接以 { 开头、以 } 结尾，键名英文半角、值中文、每个字段都出现、没有内容用空字符串 "" 占位、不要残留结尾逗号。
+
+{"storySummary":"900-2200字，合并旧摘要与关键新剧情，含【当前场景】【角色状态】【关键剧情】【用户偏好】【未完成事项】【连续性约束】","roleMemories":[{"roleId":"永久角色ID","relationshipMemory":"与用户和其他角色的稳定关系","importantEvents":"不可遗忘的经历","currentStatus":"当前状态","lastKnownScene":"最后已知地点与在场情况","commitments":"尚未完成的约定或任务"}]}
+
+永久名册中的角色全部保留，即使本段没有登场也必须出现在 roleMemories；只能使用名册里的稳定角色ID。不要把推测写成既定事实。`,
+      },
+      {
+        role: "user",
+        content: `上一版输出未能按格式解析，请严格按上述 JSON 重写。\n\n永久名册：\n${roster}\n\n当前剧情时间：${formatStoryMoment(normalizeStoryClock(body.storyClock))}\n\n旧摘要：${String(body.existingSummary || "暂无").slice(0, 12000)}\n\n旧角色记忆：${JSON.stringify(body.existingRoleMemories || {}).slice(0, 12000)}\n\n本轮对话：\n${transcript}`,
+      },
+    ], {
+      temperature: 0.1,
+      maxTokens: 5200,
+      stream: false,
+      expectsStructuredOutput: true,
+      category: "summary",
+    });
+    parsed = parseLooseJsonObject(repairContent, acceptSummaryShape);
+  }
   if (!parsed) throw new Error("剧情总结格式不完整，原始对话已保留，请稍后重试");
+  const rawRoleMemories = Array.isArray(parsed.roleMemories)
+    ? parsed.roleMemories
+    : Object.entries(parsed.roleMemories || {}).map(([roleId, value]) => ({
+        roleId,
+        ...(value && typeof value === "object" ? value : { currentStatus: String(value || "") }),
+      }));
   const roleMemories = baselineRoleMemories(
     body.profile || {},
     body.ensemble || {},
     body.existingRoleMemories || {},
   );
-  for (const item of parsed.roleMemories) {
+  for (const item of rawRoleMemories) {
     const roleId = String(item?.roleId || "").trim();
     if (!roleMemories[roleId]) continue;
     roleMemories[roleId] = {
@@ -2211,6 +2414,7 @@ async function prepareImagePrompt(body, kind) {
     temperature: 0.38,
     maxTokens: 1800,
     expectsStructuredOutput: kind === "scene",
+    category: "image-prompt",
   });
   const prompt = formatImagePromptResponse(content, kind, request);
   return jsonResponse({
@@ -2239,7 +2443,7 @@ async function prepareStageBackgroundPrompt(body) {
 最近对话：
 ${transcript}`,
     },
-  ], { temperature: 0.35, maxTokens: 900 });
+  ], { temperature: 0.35, maxTokens: 900, category: "image-prompt" });
   return jsonResponse({
     prompt: content.replace(/^```[\s\S]*?\n|```$/g, "").trim().slice(0, 1200),
     model: String(body.imageModel || ""),
@@ -3352,6 +3556,7 @@ async function routeMobileRequest(path, method, body, url) {
   if (path === "/api/history") return handleHistory(body, method, url);
   if (path === "/api/memory") return handleMemory(body, method);
   if (path === "/api/backup") return handleBackup(body, method);
+  if (path === "/api/usage") return handleUsage(body, method);
   if (path === "/api/health") {
     const config = getMobileApiConfig();
     return jsonResponse({
@@ -3403,24 +3608,30 @@ async function routeMobileRequest(path, method, body, url) {
     if (imageKey && config.imageBaseUrl) {
       try {
         const errors = [];
+        let standardFailed = false;
         for (const endpoint of ["/models", "/image-generation-models"]) {
+          // /models 已成功响应时不再请求供应商扩展目录，避免无意义的 404。
+          if (endpoint !== "/models" && !standardFailed) break;
           const response = await nativeHttpRequest(`${config.imageBaseUrl}${endpoint}`, {
             method: "GET",
             headers: { Authorization: `Bearer ${imageKey}` },
             timeout: 45000,
           });
           if (!response.ok) {
+            if (endpoint === "/models") standardFailed = true;
             errors.push(`${endpoint}（${response.status}）`);
             continue;
           }
           discovered.push(...normalizeModelCatalog(parseJsonText(response.text)));
           discovered = [...new Set(discovered)];
-          // 大多数 OpenAI 兼容接口会在 /models 中返回图片模型。
-          // 只有通用目录没有图片模型时，才尝试供应商扩展目录，避免无意义的 404。
           if (imageModelCandidates(discovered).length) break;
         }
-        if (!imageModelCandidates(discovered).length && errors.length) {
-          discoveryError = `图片模型目录请求失败：${errors.join("；")}`;
+        if (!imageModelCandidates(discovered).length) {
+          if (standardFailed) {
+            discoveryError = `图片模型目录请求失败：${errors.join("；")}`;
+          } else {
+            discoveryError = "接口已响应，但没有返回图片模型";
+          }
         }
       } catch (error) {
         discoveryError = String(error?.message || "图片模型目录请求失败");

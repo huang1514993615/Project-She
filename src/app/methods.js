@@ -134,6 +134,55 @@ export const appMethods = {
       localStorage.removeItem("night-mailbox-error-logs");
       this.showToast("错误日志已清除", false);
     },
+    async refreshTokenUsage() {
+      if (this.tokenUsageLoading) return;
+      this.tokenUsageLoading = true;
+      try {
+        const response = await fetch("/api/usage", { cache: "no-store" });
+        if (!response.ok) throw new Error("usage unavailable");
+        const data = await response.json();
+        this.tokenUsage = data;
+        if (this.tokenPriceInput === "" && Number.isFinite(Number(data?.pricePerMillionInput))) {
+          this.tokenPriceInput = Number(data.pricePerMillionInput) > 0 ? String(data.pricePerMillionInput) : "";
+        }
+        if (this.tokenPriceOutput === "" && Number.isFinite(Number(data?.pricePerMillionOutput))) {
+          this.tokenPriceOutput = Number(data.pricePerMillionOutput) > 0 ? String(data.pricePerMillionOutput) : "";
+        }
+      } catch {
+        this.tokenUsage = null;
+      } finally {
+        this.tokenUsageLoading = false;
+      }
+    },
+    async saveTokenPrice() {
+      try {
+        const response = await fetch("/api/usage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pricePerMillionInput: Number(this.tokenPriceInput) || 0,
+            pricePerMillionOutput: Number(this.tokenPriceOutput) || 0,
+          }),
+        });
+        if (!response.ok) throw new Error("save usage price failed");
+        const data = await response.json();
+        this.tokenUsage = data;
+        this.showToast("Token 单价已保存，费用为估算值");
+      } catch {
+        this.showToast("Token 单价保存失败");
+      }
+    },
+    formatTokenCount(count) {
+      return Number(count) >= 1000
+        ? `${(Number(count) / 1000).toFixed(1)}k`
+        : String(Math.max(0, Math.round(Number(count) || 0)));
+    },
+    formatCost(value, usage) {
+      const hasPrice = Number(usage?.pricePerMillionInput) > 0 || Number(usage?.pricePerMillionOutput) > 0;
+      const number = Number(value) || 0;
+      if (!hasPrice) return "未设置单价";
+      return number >= 1 ? `¥${number.toFixed(2)}` : `¥${number.toFixed(4)}`;
+    },
     now() {
       return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
     },
@@ -150,7 +199,7 @@ export const appMethods = {
     roleDerivedSummary(role) {
       const state = this.roleDerivedState(role);
       const age = state.actualAge === null
-        ? "年龄待 AI 提取"
+        ? "年龄未设置"
         : state.apparentAge !== null && state.apparentAge !== state.actualAge
           ? `实际 ${state.actualAge} 岁 / 外表约 ${state.apparentAge} 岁`
           : `${state.actualAge} 岁`;
@@ -165,7 +214,25 @@ export const appMethods = {
         ageless: "年龄与外表均不随剧情时间变化",
         unknown: "等待 AI 从人物提示词判断成长规则",
       };
-      return `${ruleLabels[state.agingRule] || ruleLabels.unknown}。修改人物提示词后保存，会由 AI 重新提取。`;
+      return `${ruleLabels[state.agingRule] || ruleLabels.unknown}。可在下方直接填写实际年龄，或修改人物提示词后保存，由 AI 重新提取。`;
+    },
+    ensureRoleDerivedProfile(role) {
+      if (!role) return {};
+      if (role.derivedProfile && typeof role.derivedProfile === "object") return role.derivedProfile;
+      const derivedProfile = {};
+      this.$set(role, "derivedProfile", derivedProfile);
+      return derivedProfile;
+    },
+    normalizeRoleAge(role) {
+      const profile = role?.derivedProfile;
+      if (!profile || typeof profile !== "object") return;
+      const normalize = (value) => {
+        if (value === null || value === undefined || value === "") return null;
+        const number = Number(value);
+        return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
+      };
+      profile.initialActualAge = normalize(profile.initialActualAge);
+      profile.initialApparentAge = normalize(profile.initialApparentAge);
     },
     roleRecordByName(name) {
       if (!name || name === this.profile.name) return { id: "primary", role: this.profile };
@@ -224,6 +291,7 @@ export const appMethods = {
         : this.ensemble.customRoles.find((item) => item.id === targetId)
           || this.ensemble.temporaryRoles.find((item) => item.id === targetId);
       if (!role) return;
+      this.ensureRoleDerivedProfile(role);
       this.settingsOpen = false;
       this.characterPromptOpen = false;
       this.roleDetailTargetId = targetId;
@@ -996,7 +1064,9 @@ export const appMethods = {
           payload: { generated },
         });
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "角色设定生成失败";
+        const rawDetail = error instanceof Error ? error.message : "角色设定生成失败";
+        const isBusy = /503|too busy|service_unavailable|429|繁忙/.test(rawDetail);
+        const detail = isBusy ? "上游模型服务繁忙，已自动重试仍失败，请稍后再试或更换模型" : rawDetail;
         this.showToast(detail.length > 42 ? "角色设定生成失败，请检查对话模型" : detail);
       } finally {
         this.roleProfileGenerating = false;
@@ -1122,6 +1192,37 @@ export const appMethods = {
           : null;
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
+    },
+    openSetupReminder() {
+      if (!this.directApiMode) return;
+      if (!this.onboardingCompleted) {
+        this.settingsOpen = true;
+        return;
+      }
+      if (String(this.worldSetting || "").trim().length < 60) {
+        this.openPromptSection("world");
+        return;
+      }
+      if (!String(this.profile?.name || "").trim() || !String(this.profile?.prompt || "").trim()) {
+        this.openPromptSection("roles");
+        return;
+      }
+      if (!this.storyInitialized) {
+        this.switchMobileTab("chat");
+        if (this.chatApiMode === "configured" && this.chatConnectionVerified) {
+          this.showToast("正在为你生成开场…");
+          void this.initializeStoryOpening();
+        } else {
+          this.settingsOpen = true;
+        }
+      }
+    },
+    dismissSetupReminder() {
+      if (!this.directApiMode) return;
+      this.storyInitialized = true;
+      this.persist();
+      this.saveSettings().catch(() => this.showToast("剧情提醒关闭失败"));
+      this.showToast("已关闭剧情提醒，可在需要时从菜单继续");
     },
     async generateWorldSetting() {
       if (this.worldGenerating) return;
@@ -1752,6 +1853,14 @@ export const appMethods = {
       if (job?.status === "completed") return `生成完成并已保存${elapsed ? ` · 用时 ${elapsed}` : ""}`;
       return String(job?.statusMessage || "等待任务状态");
     },
+    imageJobTitle(job) {
+      if (!job || job?.status !== "failed") {
+        return job?.archive?.title || job?.targetName || (this.isCharacterAlbumItem(job) ? "角色形象" : "当前剧情场景");
+      }
+      if (String(job?.targetName || "").trim()) return String(job.targetName).slice(0, 40);
+      const promptSummary = String(job?.prompt || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      return promptSummary || "生成失败";
+    },
     async retryImageJob(job) {
       if (!job?.request || job.status !== "failed") {
         this.showToast("这条旧记录缺少重试参数，请重新整理提示词后生成");
@@ -1784,12 +1893,16 @@ export const appMethods = {
         .trim();
     },
     sceneArchiveSnapshot() {
+      const isFailedReply = (message) =>
+        message.role === "assistant"
+        && /^(?:本轮请求失败|请求失败|对话接口 \d+)/.test(String(message.content || "").trim());
       const recent = this.messages
         .filter((message) =>
           !message.typing
           && (message.role === "user" || message.role === "assistant")
           && typeof message.content === "string"
           && message.content.trim()
+          && !isFailedReply(message)
         )
         .slice(-8);
       const latestAssistant = [...recent].reverse().find((message) => message.role === "assistant");
@@ -1955,7 +2068,11 @@ export const appMethods = {
       return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
     },
     handleGalleryPointerDown(event) {
-      event.currentTarget?.setPointerCapture?.(event.pointerId);
+      try {
+        event.currentTarget?.setPointerCapture?.(event.pointerId);
+      } catch {
+        // 合成事件或异常指针没有 active pointer 时会抛错，忽略即可
+      }
       this.imagePreviewPointers[event.pointerId] = { x: event.clientX, y: event.clientY };
       const points = Object.values(this.imagePreviewPointers);
       if (points.length >= 2) {
@@ -2689,6 +2806,7 @@ export const appMethods = {
         this.galleryDisplayLimit = 18;
         this.pollImageJobs();
       }
+      if (tab === "data") this.refreshTokenUsage();
       if (tab === "chat") this.scrollBottom();
     },
     openImageStudio() {
@@ -2724,6 +2842,14 @@ export const appMethods = {
         this.summarySaving = false;
       }
     },
+    maybeAutoCompress() {
+      if (!this.autoCompress || this.summarizing || this.sending) return;
+      const backoff = this.autoCompressFailStreak > 0
+        ? Math.min(120, this.autoCompressFailStreak * 15)
+        : 0;
+      if (this.compressibleMessageCount < this.autoCompressThreshold + backoff) return;
+      void this.summarizeConversation(true);
+    },
     async summarizeConversation(automatic = false) {
       if (this.summarizing || this.sending) return false;
       const contextMessages = this.messages
@@ -2749,9 +2875,10 @@ export const appMethods = {
         return false;
       }
 
+      const snapshot = this.messages.slice();
       this.stopEnsemblePlayback();
       this.summarizing = true;
-      if (automatic) this.showToast("对话达到阈值，正在自动压缩剧情");
+      if (automatic) this.showToast("正在后台整理剧情记忆…");
       try {
         const response = await fetch("/api/summary", {
           method: "POST",
@@ -2780,24 +2907,30 @@ export const appMethods = {
         ) {
           throw new Error(result.detail || result.error || "剧情总结失败");
         }
+        this.autoCompressFailStreak = 0;
         this.storySummary = result.summary.slice(0, 20000);
         this.roleMemories = result.roleMemories;
         this.summaryUpdatedAt = new Date().toISOString();
+        const snapshotIds = new Set(snapshot.map((item) => item.id));
+        const preserved = this.messages.filter((item) => !snapshotIds.has(item.id));
         this.messages = [{
           id: Date.now(),
           role: "assistant",
           speaker: this.profile.name,
           content: `【剧情记忆已整理】\n已将 ${result.processedMessages || contextMessages.length} 条消息整理为剧情摘要和可检索章节，提取 ${result.factCount || 0} 条长期事实，并为 ${result.roleMemoryCount || Object.keys(this.roleMemories).length} 位角色保留独立记忆。原始对话仍在本地历史库中。`,
           time: this.now(),
-        }];
+        }, ...preserved];
         this.suggestions = ["我马上落实刚才的决定", "带上需要的东西，现在就换地点", "联系相关角色，把新线索带进现场"];
         await Promise.all([this.saveSettings(), this.saveHistory()]);
         this.scrollBottom();
         this.showToast(automatic ? "旧对话已压缩并归档" : "剧情已总结，原始对话已归档");
         return true;
       } catch (error) {
-        const detail = error instanceof Error ? error.message : "剧情总结失败";
-        this.showToast(detail.length > 42 ? "剧情总结失败，原记录已保留" : detail);
+        this.autoCompressFailStreak += 1;
+        if (!automatic) {
+          const detail = error instanceof Error ? error.message : "剧情总结失败";
+          this.showToast(detail.length > 42 ? "剧情总结失败，原记录已保留" : detail);
+        }
         return false;
       } finally {
         this.summarizing = false;
@@ -2854,10 +2987,7 @@ export const appMethods = {
       const content = String(options?.driverContent || this.draft || "").trim();
       const hiddenDriver = options?.hiddenDriver === true;
       const forceSingle = options?.forceSingle === true;
-      if (!content || this.sending || this.summarizing || this.editingMessageId !== null) return;
-      if (this.autoCompress && this.compressibleMessageCount >= this.autoCompressThreshold) {
-        await this.summarizeConversation(true);
-      }
+      if (!content || this.sending || this.editingMessageId !== null) return;
       this.stopEnsemblePlayback();
       const requestId = ++this.chatRequestId;
       const provider = this.chatProvider;
@@ -2977,6 +3107,7 @@ export const appMethods = {
       } finally {
         if (requestId === this.chatRequestId) {
           this.sending = false;
+          this.refreshTokenUsage();
           this.ensemblePlaying = false;
           this.persist();
           this.saveHistory().catch(() => this.showToast("聊天记录写入失败"));
@@ -2990,6 +3121,7 @@ export const appMethods = {
             }
             this.persist();
             void eventDecisionTask;
+            void this.maybeAutoCompress();
           }
         }
       }
@@ -3064,7 +3196,6 @@ export const appMethods = {
       await this.saveProfile();
     },
     async saveProfile() {
-      const wasOnboarding = !this.onboardingCompleted && this.standaloneMode;
       if (!this.userProfile.name) this.userProfile.name = "旅行者";
       if (!["女性", "男性", "非二元", "未指定"].includes(this.userProfile.gender)) this.userProfile.gender = "未指定";
       if (!this.userProfile.pronoun) this.syncUserPronoun();
@@ -3072,9 +3203,16 @@ export const appMethods = {
       if (!this.profile.avatarUrl) this.profile.avatarUrl = this.defaultAvatarUrl;
       if (this.ensemble.friend.name) this.ensemble.friend.age = Math.min(80, Math.max(18, Number(this.ensemble.friend.age) || 24));
       this.ensemble.maxTurns = Math.min(10, Math.max(1, Number(this.ensemble.maxTurns) || 3));
-      this.onboardingCompleted = true;
-      this.onboardingStep = 5;
-      if (wasOnboarding) this.storyInitialized = false;
+      const setupComplete = this.chatConnectionVerified
+        && this.worldSetting.trim().length >= 60
+        && this.onboardingRoleReady;
+      const wasOnboarding = !this.onboardingCompleted;
+      if (setupComplete) {
+        this.onboardingCompleted = true;
+        this.onboardingStep = 5;
+        this.onboardingDismissed = false;
+        if (wasOnboarding) this.storyInitialized = false;
+      }
       this.ensemble.customRoles = this.ensemble.customRoles
         .filter((role) => role?.name?.trim())
         .slice(0, 30)
@@ -3102,10 +3240,12 @@ export const appMethods = {
       this.persist();
       await this.saveSettings().catch(() => this.showToast("角色设定写入失败"));
       this.settingsOpen = false;
-      if (wasOnboarding && this.directApiMode) {
+      if (wasOnboarding && setupComplete && this.directApiMode) {
         this.switchMobileTab("chat");
         this.showToast("世界与人物档案已确认，正在生成第一幕");
         if (this.chatConnectionVerified) void this.initializeStoryOpening();
+      } else if (wasOnboarding && !setupComplete) {
+        this.showToast("请继续完成模型、世界与人物配置");
       } else {
         this.showToast("人物与关系设定已保存");
       }
@@ -3429,6 +3569,9 @@ export const appMethods = {
           action: "settings",
           onboardingCompleted: this.onboardingCompleted,
           onboardingStep: this.onboardingStep,
+          onboardingDismissed: this.onboardingDismissed,
+          onboardingWorldTemplateId: this.onboardingWorldTemplateId,
+          onboardingRoleTemplateId: this.onboardingRoleTemplateId,
           storyInitialized: this.storyInitialized,
           worldVersion: this.worldVersion,
           worldSyncPending: this.worldSyncPending,

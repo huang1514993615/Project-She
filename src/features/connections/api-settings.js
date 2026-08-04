@@ -70,6 +70,7 @@ export function mountApiSettingsDialog() {
     });
     saveMobileApiConfig(next);
     await flushMobileStorage();
-    window.location.reload();
+    close();
+    window.dispatchEvent(new CustomEvent("night-mailbox:api-saved"));
   });
 }

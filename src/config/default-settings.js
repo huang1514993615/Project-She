@@ -8,6 +8,7 @@ export const STANDALONE_DEFAULT_SETTINGS = {
   scenarioVersion: "world-first-onboarding-v2",
   onboardingCompleted: false,
   onboardingStep: 1,
+  onboardingDismissed: false,
   storyInitialized: false,
   worldVersion: 0,
   worldSyncPending: false,
@@ -27,6 +28,7 @@ export const STANDALONE_DEFAULT_SETTINGS = {
     imagePrompt: "",
     avatarUrl: "",
     worldVersion: 0,
+    derivedProfile: {},
   },
   ensemble: {
     enabled: false,
@@ -42,6 +44,7 @@ export const STANDALONE_DEFAULT_SETTINGS = {
       appearance: "",
       imagePrompt: "",
       avatarUrl: "",
+      derivedProfile: {},
     },
     customRoles: [],
     temporaryRoles: [],

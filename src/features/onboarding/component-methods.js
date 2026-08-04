@@ -1,4 +1,10 @@
 import { compactTextHash } from "../../utils/text-hash.js";
+import {
+  LOVER_WORLD_TEMPLATE,
+  LOVER_ROLE_TEMPLATES,
+  LOVER_ROLE_TEMPLATE_LIST,
+  loverTemplateForGender,
+} from "./templates.js";
 
 /** First-run flow. Each step persists independently so refreshes are recoverable. */
 export const onboardingMethods = {
@@ -10,9 +16,54 @@ export const onboardingMethods = {
     const target = Math.min(5, Math.max(1, Number(step) || 1));
     if (target > this.onboardingStep) return;
     this.onboardingStep = target;
+    if (target === 3 && this.onboardingWorldTemplateId && !this.worldSeed.trim()) {
+      this.applyLoverWorldTemplate(this.onboardingWorldTemplateId);
+    }
     this.persist();
     this.saveSettings().catch(() => {});
   },
+  applyLoverWorldTemplate(templateId, force = false) {
+    const template = LOVER_WORLD_TEMPLATE.id === templateId ? LOVER_WORLD_TEMPLATE : null;
+    if (!template) return;
+    this.onboardingWorldTemplateId = template.id;
+    if (force || !this.worldSeed.trim()) this.worldSeed = template.seed;
+  },
+  applyLoverRoleTemplate(templateId) {
+    const template = LOVER_ROLE_TEMPLATES[templateId] || null;
+    if (!template) return;
+    this.onboardingRoleTemplateId = template.id;
+    this.roleAiInstruction = template.instruction;
+    if (["女性", "男性", "非二元", "未指定"].includes(template.gender)) {
+      this.profile.gender = template.gender;
+      this.syncCoreAvatarToGender();
+    }
+    this.profile.relation = template.relation;
+    if (!this.profile.prompt.trim()) this.profile.prompt = template.prompt;
+    if (!this.profile.appearance.trim()) this.profile.appearance = template.appearance;
+  },
+  ensureOnboardingRoleTemplate() {
+    if (this.onboardingRoleTemplateId) return;
+    const match = loverTemplateForGender(this.userProfile.gender);
+    this.applyLoverRoleTemplate(match.defaultTemplate.id);
+  },
+  clearOnboardingRoleTemplate() {
+    this.onboardingRoleTemplateId = "";
+    this.roleAiInstruction = "";
+  },
+  dismissOnboarding() {
+    this.settingsOpen = false;
+    this.onboardingDismissed = true;
+    this.persist();
+    this.saveSettings().catch(() => {});
+  },
+  onboardingRoleTemplateOptions() {
+    return LOVER_ROLE_TEMPLATE_LIST.map((template) => ({
+      id: template.id,
+      label: template.label,
+      gender: template.gender,
+    }));
+  },
+  // ...existing code...
   registerWorldRevision() {
     const hash = compactTextHash(this.worldSetting);
     if (!hash || hash === this.savedWorldHash) return false;
@@ -43,6 +94,10 @@ export const onboardingMethods = {
       if (!this.profile.avatarUrl) this.profile.avatarUrl = this.defaultAvatarUrl;
     }
     this.onboardingStep = Math.min(5, this.onboardingStep + 1);
+    if (this.onboardingStep === 3 && this.onboardingWorldTemplateId && !this.worldSeed.trim()) {
+      this.applyLoverWorldTemplate(this.onboardingWorldTemplateId);
+    }
+    if (this.onboardingStep === 4) this.ensureOnboardingRoleTemplate();
     this.persist();
     await this.saveSettings().catch(() => this.showToast("初始化进度保存失败"));
   },

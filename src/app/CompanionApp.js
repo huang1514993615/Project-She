@@ -134,6 +134,15 @@ export const CompanionApp = Vue.extend({
       const saved = await response.json();
       if (saved?.userProfile) this.userProfile = { ...this.userProfile, ...saved.userProfile };
       if (this.directApiMode) this.onboardingCompleted = saved?.onboardingCompleted === true;
+      if (this.directApiMode && typeof saved?.onboardingDismissed === "boolean") {
+        this.onboardingDismissed = saved.onboardingDismissed;
+      }
+      if (typeof saved?.onboardingWorldTemplateId === "string" && saved.onboardingWorldTemplateId) {
+        this.onboardingWorldTemplateId = saved.onboardingWorldTemplateId;
+      }
+      if (typeof saved?.onboardingRoleTemplateId === "string" && saved.onboardingRoleTemplateId) {
+        this.onboardingRoleTemplateId = saved.onboardingRoleTemplateId;
+      }
       if (Number.isFinite(Number(saved?.onboardingStep))) this.onboardingStep = Math.min(5, Math.max(1, Number(saved.onboardingStep)));
       if (saved?.profile) this.profile = { ...this.profile, ...saved.profile };
       if (saved?.ensemble) this.applyEnsemble(saved.ensemble);
@@ -178,13 +187,24 @@ export const CompanionApp = Vue.extend({
     this.savedWorldHash = compactTextHash(this.worldSetting);
     const coreAvatarMigrated = this.migrateLegacyCoreAvatar();
     this.settingsReady = true;
+    if (!this.onboardingCompleted && this.onboardingStep === 4) this.ensureOnboardingRoleTemplate();
     if (coreAvatarMigrated) {
       this.persist();
       this.saveSettings().catch(() => this.showToast("新版预设头像保存失败"));
     }
-    if (this.directApiMode && !this.onboardingCompleted) {
+    if (this.directApiMode && !this.onboardingCompleted && !this.onboardingDismissed) {
       this.$nextTick(() => { this.settingsOpen = true; });
     }
+    this.refreshAfterApiSaved = () => {
+      fetch("/api/health").then((response) => response.json()).then(async (data) => {
+        this.apiMode = data.chat === "saved" ? "live" : "demo";
+        this.chatApiMode = data.chat === "saved" ? "configured" : "disabled";
+        this.chatProvider = "chat";
+        this.imageMode = data.image === "saved" ? "configured" : "disabled";
+        await Promise.all([this.loadChatModels(), this.loadImageModels()]);
+      }).catch((error) => this.recordError("接口配置保存后刷新", error));
+    };
+    window.addEventListener("night-mailbox:api-saved", this.refreshAfterApiSaved);
     this.settingsSyncTimer = window.setInterval(() => this.syncSettingsFromStorage(), 12000);
     fetch("/api/health").then((response) => response.json()).then(async (data) => {
       this.apiMode = data.chat === "saved" ? "live" : "demo";
@@ -197,6 +217,7 @@ export const CompanionApp = Vue.extend({
       }
     }).catch((error) => this.recordError("接口健康检查", error));
     this.pollImageJobs();
+    this.refreshTokenUsage();
     const latestAssistant = [...this.messages].reverse().find((message) => message.role === "assistant" && message.speaker)
       || { role: "assistant", speaker: this.profile.name, content: "" };
     this.applyStageCue(latestAssistant);
@@ -211,6 +232,7 @@ export const CompanionApp = Vue.extend({
     window.clearTimeout(this.imageJobPollTimer);
     window.removeEventListener("error", this.globalErrorHandler);
     window.removeEventListener("unhandledrejection", this.rejectionErrorHandler);
+    window.removeEventListener("night-mailbox:api-saved", this.refreshAfterApiSaved);
     this.clearStageVisualSequence();
     this.stopEnsemblePlayback();
   },

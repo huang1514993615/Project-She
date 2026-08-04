@@ -19,6 +19,18 @@ export const appComputed = {
         && String(this.profile.appearance || "").trim().length >= 30
       );
     },
+    setupReminder() {
+      if (!this.directApiMode) return "";
+      if (!this.onboardingCompleted) {
+        return `初始化尚未完成（第 ${Math.max(1, Math.min(5, Number(this.onboardingStep) || 1))}/5 步）`;
+      }
+      if (String(this.worldSetting || "").trim().length < 60) return "世界设定尚未完成，请继续配置";
+      if (!String(this.profile?.name || "").trim() || !String(this.profile?.prompt || "").trim()) {
+        return "核心人物尚未创建，请继续配置";
+      }
+      if (!this.storyInitialized) return "尚未开始剧情，请继续配置";
+      return "";
+    },
     matchingCoreAvatarPresets() {
       if (this.profile.gender === "女性" || this.profile.gender === "男性" || this.profile.gender === "非二元") {
         return this.coreAvatarPresets.filter((preset) => preset.gender === this.profile.gender);
@@ -139,6 +151,12 @@ export const appComputed = {
     },
     characterImageJobs() {
       return this.visibleImageJobs.filter((job) => ["character", "visual-state"].includes(job.kind));
+    },
+    sceneAlbumCount() {
+      return this.sceneImageJobs.filter((job) => job.status === "completed" && job.imageUrl).length;
+    },
+    characterAlbumCount() {
+      return this.characterImageJobs.filter((job) => job.status === "completed" && job.imageUrl).length;
     },
     galleryJobs() {
       return this.galleryTab === "character" ? this.characterImageJobs : this.sceneImageJobs;
