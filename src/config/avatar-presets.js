@@ -1,7 +1,6 @@
 /** Built-in avatars are distribution assets; user uploads always take precedence. */
 function bundledAvatarAsset(id, filename) {
-  return window.__NIGHT_MAILBOX_CORE_AVATARS__?.[id]
-    || (window.__NIGHT_MAILBOX_MOBILE__ ? `./avatars/${filename}` : `/avatars/${filename}`);
+  return window.__NIGHT_MAILBOX_CORE_AVATARS__?.[id] || `./avatars/${filename}`;
 }
 
 export const CORE_AVATAR_PRESETS = [
