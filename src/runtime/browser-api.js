@@ -16,11 +16,6 @@ import {
   maxEnsembleOutputTokens,
 } from "../../shared/ensemble-turns.js";
 import {
-  DEFAULT_ROLE_VISUAL_STATES,
-  ROLE_VISUAL_ACTIONS,
-  ROLE_VISUAL_EMOTIONS,
-} from "../../shared/role-visual-states.js";
-import {
   buildImagePromptRequest,
   formatImagePromptResponse,
 } from "../../shared/image-prompt-context.js";
@@ -1836,17 +1831,16 @@ ${scheduleText}
     age: primaryDerived.actualAge ?? "",
     personality: primaryDerived.corePersonality,
   });
-  const visualStateIds = DEFAULT_ROLE_VISUAL_STATES.map((state) => state.id).join(", ");
   const multi = body.responseMode === "multi" && ensemble.enabled !== false
     ? `\n【多人返回结构】
 必须只输出一个合法的 JSON 对象：直接以 { 开头、以 } 结尾，不包裹在 \`\`\`json 代码块里，不缩进到其他标记内，不使用 JSON Output / JSON mode 等结构化输出功能，不输出任何 JSON 之外的解释、说明、前后缀或问候语。
 
 严格结构（键名必须使用英文半角，值使用中文）：
-{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":"","visual":{"preferredStateId":"固定立绘状态","emotion":"情绪标签","action":"动作标签","intensity":0.7,"sequence":[]}}]}
+{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":""}]}
 
 字段规则：
 - turns 不能是空数组；每个 turn 的 speaker 必须来自人物名册，dialogue 只写该角色自己的台词。
-- scene/mood/action/dialogue/progression/visual 每个字段都要出现，没有内容就用空字符串 "" 占位，不要省略字段。
+- scene/mood/action/dialogue/progression 每个字段都要出现，没有内容就用空字符串 "" 占位，不要省略字段。
 - 所有值用半角引号包裹，字符串内不要出现未转义的双引号；不要使用单引号代替双引号。
 - 只有最后一条 progression 非空；turns 内部不要残留逗号结尾。
 本轮最多出现 ${Math.min(10, Math.max(1, Number(ensemble.maxTurns) || 3))} 位不同角色，turns 最多 ${maxEnsembleMessages(ensemble.maxTurns)} 条，但这是安全上限，不要为了用满而拆句或凑消息。同一 speaker 可以在互动后再次回复，但每条只能写自己的动作和台词，不能在 dialogue 里代写其他角色台词；换人必须另建 turn。严格按时间顺序排列：后一条要自然承接前一条并带来新信息、新反应或新动作，避免重复，只有连续动作确实需要分段时才让同一 speaker 连续出现。只安排当前场景需要的人物，优先使用能完整推动剧情的最短轮次；只有最后一条 progression 非空，完成推进后立即停下让用户接话。`
@@ -1876,14 +1870,6 @@ ${rosterText}
 ${String(style).slice(0, 4000)}
 
 每轮必须让局面产生一个已经发生的明确变化，而不是只提问或等待。保持地点、人物位置、衣着、物品和未完成动作连续。${multi}
-
-【独立HTML立绘标签】
-每条 turn 的 visual 必须选择最接近当前表演的固定状态，不要创造新的状态ID。
-preferredStateId 可选：${visualStateIds}
-emotion 可选：${ROLE_VISUAL_EMOTIONS.join(", ")}
-action 可选：${ROLE_VISUAL_ACTIONS.join(", ")}
-intensity 为 0 到 1。visual 只控制前端立绘，不要在 dialogue 中朗读标签。
-【动态表演序列】visual 可增加 sequence 数组，包含 1–4 个按时间顺序播放的阶段；每项结构为 {"preferredStateId":"固定状态ID","emotion":"情绪","action":"动作","intensity":0.5,"durationMs":1200}。当情绪或动作发生变化时必须写出过程，例如平静→吃惊→开心、伤心→擦泪→安心、警戒→施法→放松；不要只返回最终情绪。没有明显变化时只用一个阶段。durationMs 使用 700–2600。
 
 【最近上下文】
 ${timeContext}`;

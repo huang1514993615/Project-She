@@ -1782,15 +1782,15 @@ ${o}
   外观：${String(t.appearance||`沿用最近剧情。`).slice(0,700)}
   当前发展：${String(r.characterDevelopment||`以最近剧情表现为准。`).slice(0,500)}
   长期记忆：${String([n.relationshipMemory,n.importantEvents,n.currentStatus,n.lastKnownScene,n.commitments].filter(Boolean).join(`；`)||`暂无`).slice(0,1500)}`}).join(`
-`),l=Cm(t,i.day),u=Fd(e.systemPrompt||Pd,{...t,age:l.actualAge??``,personality:l.corePersonality}),d=Wu.map(e=>e.id).join(`, `),f=e.responseMode===`multi`&&r.enabled!==!1?`\n【多人返回结构】
+`),l=Cm(t,i.day),u=Fd(e.systemPrompt||Pd,{...t,age:l.actualAge??``,personality:l.corePersonality}),d=e.responseMode===`multi`&&r.enabled!==!1?`\n【多人返回结构】
 必须只输出一个合法的 JSON 对象：直接以 { 开头、以 } 结尾，不包裹在 \`\`\`json 代码块里，不缩进到其他标记内，不使用 JSON Output / JSON mode 等结构化输出功能，不输出任何 JSON 之外的解释、说明、前后缀或问候语。
 
 严格结构（键名必须使用英文半角，值使用中文）：
-{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":"","visual":{"preferredStateId":"固定立绘状态","emotion":"情绪标签","action":"动作标签","intensity":0.7,"sequence":[]}}]}
+{"scene":"共享场景","turns":[{"speaker":"角色名","scene":"角色所在场景","mood":"心情","action":"动作","dialogue":"台词","progression":""}]}
 
 字段规则：
 - turns 不能是空数组；每个 turn 的 speaker 必须来自人物名册，dialogue 只写该角色自己的台词。
-- scene/mood/action/dialogue/progression/visual 每个字段都要出现，没有内容就用空字符串 "" 占位，不要省略字段。
+- scene/mood/action/dialogue/progression 每个字段都要出现，没有内容就用空字符串 "" 占位，不要省略字段。
 - 所有值用半角引号包裹，字符串内不要出现未转义的双引号；不要使用单引号代替双引号。
 - 只有最后一条 progression 非空；turns 内部不要残留逗号结尾。
 本轮最多出现 ${Math.min(10,Math.max(1,Number(r.maxTurns)||3))} 位不同角色，turns 最多 ${Qu(r.maxTurns)} 条，但这是安全上限，不要为了用满而拆句或凑消息。同一 speaker 可以在互动后再次回复，但每条只能写自己的动作和台词，不能在 dialogue 里代写其他角色台词；换人必须另建 turn。严格按时间顺序排列：后一条要自然承接前一条并带来新信息、新反应或新动作，避免重复，只有连续动作确实需要分段时才让同一 speaker 连续出现。只安排当前场景需要的人物，优先使用能完整推动剧情的最短轮次；只有最后一条 progression 非空，完成推进后立即停下让用户接话。`:``;return`【提示词优先级】
@@ -1817,15 +1817,7 @@ ${c}
 【回复风格】
 ${String(u).slice(0,4e3)}
 
-每轮必须让局面产生一个已经发生的明确变化，而不是只提问或等待。保持地点、人物位置、衣着、物品和未完成动作连续。${f}
-
-【独立HTML立绘标签】
-每条 turn 的 visual 必须选择最接近当前表演的固定状态，不要创造新的状态ID。
-preferredStateId 可选：${d}
-emotion 可选：${Ku.join(`, `)}
-action 可选：${qu.join(`, `)}
-intensity 为 0 到 1。visual 只控制前端立绘，不要在 dialogue 中朗读标签。
-【动态表演序列】visual 可增加 sequence 数组，包含 1–4 个按时间顺序播放的阶段；每项结构为 {"preferredStateId":"固定状态ID","emotion":"情绪","action":"动作","intensity":0.5,"durationMs":1200}。当情绪或动作发生变化时必须写出过程，例如平静→吃惊→开心、伤心→擦泪→安心、警戒→施法→放松；不要只返回最终情绪。没有明显变化时只用一个阶段。durationMs 使用 700–2600。
+每轮必须让局面产生一个已经发生的明确变化，而不是只提问或等待。保持地点、人物位置、衣着、物品和未完成动作连续。${d}
 
 【最近上下文】
 ${s}`}function Om(e){if(Array.isArray(e))return{scene:``,turns:e};if(!e||typeof e!=`object`)return null;let t=[e,e.data,e.result,e.response];for(let n of t){if(Array.isArray(n))return{scene:e.scene||``,turns:n};if(!n||typeof n!=`object`)continue;let t=n.turns||n.messages||n.replies;if(Array.isArray(t))return{scene:n.scene||e.scene||``,turns:t}}return null}function km(e,t){let n=Om(ud(e,e=>!!Om(e))||dd(e,e=>e.some(e=>e&&typeof e==`object`)));return n?ed(n.turns.slice(0,Qu(t)*2).map((e,t)=>{let r=String(e?.speaker||e?.name||e?.character||``).trim(),i=String(e?.scene||e?.location||(t===0?n.scene:``)||``).trim(),a=String(e?.mood||e?.emotion||``).trim(),o=String(e?.action||``).trim(),s=String(e?.dialogue||e?.text||e?.message||``).trim(),c=!s&&typeof e?.content==`string`?e.content.trim():``,l=String(e?.progression||e?.progress||e?.next||``).trim(),u=e?.visual&&typeof e.visual==`object`?{preferredStateId:String(e.visual.preferredStateId||``).trim(),emotion:String(e.visual.emotion||a||``).trim(),action:String(e.visual.action||``).trim(),intensity:Math.min(1,Math.max(0,Number(e.visual.intensity)||.5)),sequence:(Array.isArray(e.visual.sequence)?e.visual.sequence:[]).slice(0,4).map(e=>({preferredStateId:String(e?.preferredStateId||``).trim(),emotion:String(e?.emotion||``).trim(),action:String(e?.action||``).trim(),intensity:Math.min(1,Math.max(0,Number(e?.intensity)||.5)),durationMs:Math.min(2600,Math.max(700,Number(e?.durationMs)||1200))}))}:{preferredStateId:``,emotion:a,action:``,intensity:.5,sequence:[]},d=[];return i&&d.push(`\u3010\u573a\u666f\u3011\n${i}`),a&&d.push(`\u3010\u5fc3\u60c5\u3011\n${a}`),o&&d.push(`\u3010\u52a8\u4f5c\u3011\n${o}`),s&&d.push(`\u3010\u5bf9\u8bdd\u3011\n${s}`),l&&d.push(`\u3010\u5267\u60c5\u63a8\u8fdb\u3011\n${l}`),{speaker:r,content:d.join(`
