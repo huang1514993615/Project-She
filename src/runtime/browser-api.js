@@ -1797,7 +1797,7 @@ async function retrieveRelevantMemory(body, messages) {
   ].filter(Boolean).join("\n\n").slice(0, 10000);
 }
 
-function buildChatSystem(body, recentContext) {
+function buildChatSystem(body) {
   const profile = body.profile || {};
   const userProfile = body.userProfile || {};
   const ensemble = body.ensemble || {};
@@ -1815,14 +1815,11 @@ function buildChatSystem(body, recentContext) {
         + `；状态：${event.status}`,
       ).join("\n")
     : "暂无已记录的未来约定。";
-  recentContext = `【剧情时间与日程】
+  const timeContext = `【剧情时间与日程】
 当前时间：${formatStoryMoment(storyClock)}
 ${storyClock.location ? `当前地点：${storyClock.location}` : ""}
 ${scheduleText}
-角色必须遵守当前剧情日期与已确认约定；待确认约定只能自然询问，不能当作必然已经决定的事实。不要擅自跨越日期或替用户完成重要日程。
-
-【最近对话】
-${recentContext}`;
+角色遵守剧情中已经确定的时间与约定；待确认约定只能自然询问，不能当作必然已经决定的事实。不要擅自替用户完成重要日程。`;
   const roster = roleRoster(profile, ensemble);
   const rosterText = roster.map((role) => {
     const memory = body.roleMemories?.[role.id] || {};
@@ -1889,7 +1886,7 @@ intensity 为 0 到 1。visual 只控制前端立绘，不要在 dialogue 中朗
 【动态表演序列】visual 可增加 sequence 数组，包含 1–4 个按时间顺序播放的阶段；每项结构为 {"preferredStateId":"固定状态ID","emotion":"情绪","action":"动作","intensity":0.5,"durationMs":1200}。当情绪或动作发生变化时必须写出过程，例如平静→吃惊→开心、伤心→擦泪→安心、警戒→施法→放松；不要只返回最终情绪。没有明显变化时只用一个阶段。durationMs 使用 700–2600。
 
 【最近上下文】
-${recentContext}`;
+${timeContext}`;
 }
 
 function unwrapMultiPayload(value) {
@@ -1979,10 +1976,7 @@ async function handleChat(body) {
     content = await callChatModel(body, [
       {
         role: "system",
-        content: buildChatSystem(
-          { ...body, retrievedMemory },
-          messages.map((message) => message.content).join("\n"),
-        ),
+        content: buildChatSystem({ ...body, retrievedMemory }),
       },
       ...messages,
     ], {
@@ -2037,10 +2031,7 @@ async function handleChat(body) {
         const singleContent = await callChatModel(body, [
           {
             role: "system",
-            content: buildChatSystem(
-              { ...body, responseMode: "single", retrievedMemory },
-              messages.map((message) => message.content).join("\n"),
-            ),
+            content: buildChatSystem({ ...body, responseMode: "single", retrievedMemory }),
           },
           ...messages,
         ], {

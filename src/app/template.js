@@ -6,9 +6,9 @@ export const appTemplate = `
           <span class="brand-mark">夜</span>
           <span><b>夜航信箱</b><small>NIGHT MAILBOX</small></span>
         </button>
-        <button type="button" class="brand-story-clock" @click="skipCurrentStory" :disabled="storySkipping" aria-label="跳过当前剧情">
-          <b>第 {{ storyClock.day }} 日 · {{ storySegmentLabel }}</b>
-          <small>{{ storySkipping ? '正在推进剧情…' : '跳过当前剧情' }}</small>
+        <button type="button" class="brand-story-clock" @click="openStorySkip" :disabled="storySkipping" aria-label="跳过当前剧情">
+          <b>跳过当前剧情</b>
+          <small>{{ storySkipping ? '正在推进剧情…' : '让故事继续向前' }}</small>
         </button>
         <div class="brand-actions">
           <button class="prompt-shortcut" @click="openImageStudio">生图</button>
@@ -283,13 +283,8 @@ export const appTemplate = `
           </div>
 
           <section class="story-time-hero">
-            <span>当前剧情时间</span>
-            <b>第 {{ storyClock.day }} 日</b>
-            <strong>{{ storySegmentLabel }}</strong>
-            <label class="story-location-field">
-              <span>当前位置</span>
-              <input v-model.trim="storyClock.location" maxlength="120" placeholder="地点尚未记录，点这里填写" />
-            </label>
+            <span>当前位置</span>
+            <input v-model.trim="storyClock.location" maxlength="120" placeholder="地点尚未记录，点这里填写" />
           </section>
 
           <section v-if="pendingConfirmationEvents.length" class="schedule-group">
@@ -858,6 +853,23 @@ export const appTemplate = `
               <button v-if="directApiMode" type="button" @click="openMobileDestination('connection')"><span>⌁</span><b>连接中心</b><small>API、模型和生图</small></button>
               <button type="button" @click="openMobileDestination('image')"><span>▣</span><b>图片与相册</b><small>场景和人物图</small></button>
               <button type="button" @click="openMobileDestination('data')"><span>⇄</span><b>数据与诊断</b><small>迁移、备份和日志</small></button>
+            </div>
+          </section>
+        </div>
+      </transition>
+
+      <transition name="fade">
+        <div v-if="storySkipOpen" class="modal-backdrop mobile-menu-backdrop" @click.self="storySkipOpen = false">
+          <section class="mobile-function-menu" role="dialog" aria-modal="true" aria-labelledby="story-skip-title">
+            <div class="sheet-grabber"></div>
+            <button class="modal-close" @click="storySkipOpen = false" aria-label="关闭">×</button>
+            <small>STORY ADVANCE</small>
+            <h2 id="story-skip-title">跳过当前剧情</h2>
+            <p class="onboarding-note">AI 会把这段故事自然收尾，并推进到所选时间点继续向前。</p>
+            <div class="mobile-function-grid">
+              <button type="button" @click="skipCurrentStory('next')"><span>▶</span><b>下一时段</b><small>自然推进一点</small></button>
+              <button type="button" @click="skipCurrentStory('night')"><span>☾</span><b>到今晚</b><small>跨过白天日常</small></button>
+              <button type="button" @click="skipCurrentStory('morning')"><span>☀</span><b>明天上午</b><small>开始新的一天</small></button>
             </div>
           </section>
         </div>

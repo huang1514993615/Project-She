@@ -11,7 +11,6 @@ import {
   normalizeStoryEvent,
   normalizeStoryEvents,
   storyMomentValue,
-  storySegmentLabel,
 } from "../../shared/story-time.js";
 import { shouldAnalyzeStoryEvent } from "../../shared/story-event-ai.js";
 import {
@@ -2612,32 +2611,41 @@ export const appMethods = {
     openSchedule() {
       this.mobileTab = "schedule";
     },
-    // 一键跳过当前剧情：确认后先收尾当前故事，再推进到下一时段，AI 自然衔接
-    async skipCurrentStory() {
+    openStorySkip() {
+      if (this.sending || this.summarizing || this.ensemblePlaying || this.storySkipping) return;
+      this.storySkipOpen = true;
+    },
+    // 按目标推进当前剧情：收尾当前故事并跳到所选时间点，AI 自然衔接
+    async skipCurrentStory(target = "next") {
       if (this.sending || this.summarizing || this.ensemblePlaying || this.storySkipping) return;
       if (!this.chatConnectionVerified) {
         this.showToast("请先验证对话接口并选择模型");
         return;
       }
-      if (!window.confirm("跳过当前剧情？AI 会把这段故事自然收尾并推进到下一个时间段，剧情会向前走一步。")) return;
+      this.storySkipOpen = false;
       this.storySkipping = true;
       try {
         const previous = formatStoryMoment(this.storyClock);
-        const index = STORY_TIME_SEGMENTS.findIndex((item) => item.id === this.storyClock.segment);
-        const next = index >= 0 && index < STORY_TIME_SEGMENTS.length - 1
-          ? { day: this.storyClock.day, segment: STORY_TIME_SEGMENTS[index + 1].id }
-          : { day: this.storyClock.day + 1, segment: STORY_TIME_SEGMENTS[0].id };
-        const target = advanceStoryClock(this.storyClock, next.day, next.segment);
+        const currentIndex = STORY_TIME_SEGMENTS.findIndex((item) => item.id === this.storyClock.segment);
+        let next = { day: this.storyClock.day, segment: STORY_TIME_SEGMENTS[currentIndex + 1]?.id || STORY_TIME_SEGMENTS[0].id };
+        if (target === "night") {
+          next = { day: this.storyClock.day, segment: "night" };
+        } else if (target === "morning") {
+          next = { day: this.storyClock.day + 1, segment: "morning" };
+        } else if (currentIndex < 0 || currentIndex >= STORY_TIME_SEGMENTS.length - 1) {
+          next = { day: this.storyClock.day + 1, segment: STORY_TIME_SEGMENTS[0].id };
+        }
+        const targetClock = advanceStoryClock(this.storyClock, next.day, next.segment);
         const done = await this.sendMessage({
           hiddenDriver: true,
           forceSingle: true,
-          driverContent: `时间已经推进：从“${previous}”到“${formatStoryMoment(target)}”。请先以自然的口吻，完整收尾刚才这段正在进行的故事：交代之前未聊完的话题、手头事务或动作的合理结果（日常收尾即可，不要生硬打断，也不要展开新的支线）。然后描述新时间点的场景变化、角色状态和正在发生的小事，让剧情自然衔接并继续向前推进一小步；不要替我拿主意，说完自然停下等我。`,
+          driverContent: `时间已经推进：从“${previous}”到“${formatStoryMoment(targetClock)}”。请先以自然的口吻，完整收尾刚才这段正在进行的故事：交代之前未聊完的话题、手头事务或动作的合理结果（日常收尾即可，不要生硬打断，也不要展开新的支线）。然后描述新时间点的场景变化、角色状态和正在发生的小事，让剧情自然衔接并继续向前推进一小步；不要替我拿主意，说完自然停下等我。`,
         });
         if (!done) return;
-        this.storyClock = target;
-        this.dayCount = target.day;
+        this.storyClock = targetClock;
+        this.dayCount = targetClock.day;
         await this.saveSettings().catch(() => this.showToast("剧情时间保存失败"));
-        this.showToast(`已推进到第${target.day}日·${storySegmentLabel(target.segment)}`);
+        this.showToast("剧情已向前推进");
       } finally {
         this.storySkipping = false;
       }
@@ -2891,13 +2899,22 @@ export const appMethods = {
         this.summaryUpdatedAt = new Date().toISOString();
         const snapshotIds = new Set(snapshot.map((item) => item.id));
         const preserved = this.messages.filter((item) => !snapshotIds.has(item.id));
+        // 压缩后保留最近几条原始消息，保持上下文连贯；更早内容已归档进摘要与记忆
+        const keptRecent = snapshot
+          .filter((item) =>
+            !item.typing
+            && (item.role === "user" || item.role === "assistant")
+            && typeof item.content === "string"
+            && item.content.trim()
+          )
+          .slice(-6);
         this.messages = [{
           id: Date.now(),
           role: "assistant",
           speaker: this.profile.name,
           content: `【剧情记忆已整理】\n已将 ${result.processedMessages || contextMessages.length} 条消息整理为剧情摘要和可检索章节，提取 ${result.factCount || 0} 条长期事实，并为 ${result.roleMemoryCount || Object.keys(this.roleMemories).length} 位角色保留独立记忆。原始对话仍在本地历史库中。`,
           time: this.now(),
-        }, ...preserved];
+        }, ...keptRecent, ...preserved];
         this.suggestions = ["我马上落实刚才的决定", "带上需要的东西，现在就换地点", "联系相关角色，把新线索带进现场"];
         await Promise.all([this.saveSettings(), this.saveHistory()]);
         this.scrollBottom();

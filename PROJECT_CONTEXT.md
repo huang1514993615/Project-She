@@ -63,3 +63,5 @@ node --test tests/rendered-html.test.mjs
 - `src/app/methods.js` 仍包含多个低频功能，新增大功能时应继续拆到 `src/features/`。
 - `src/runtime/browser-api.js` 集中维护存储、资源、备份、聊天和图片任务，因为它们共享 IndexedDB/App WebView 能力；修改时按函数名和分区检索，不要全文件加载。
 - `src/styles/app.css` 仍较大；角色与相册样式已经拆出，后续按功能继续渐进拆分。
+
+

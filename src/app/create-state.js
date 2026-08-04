@@ -169,6 +169,7 @@ export function createAppState() {
       id: "story-event-draft", title: "", day: 1, segment: "morning", status: "confirmed",
     }),
     storySkipping: false,
+    storySkipOpen: false,
     dayCount: 1,
 
     sending: false,
