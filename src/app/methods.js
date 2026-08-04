@@ -1766,11 +1766,23 @@ export const appMethods = {
       this.suggestionRequestId += 1;
       window.clearTimeout(this.suggestionRefreshTimer);
       this.suggestionsLoading = false;
+      // 记录将被移除的旧消息 id，重发后从本地历史库删除，避免检索时重复命中
+      const removedIds = this.messages
+        .slice(messageIndex)
+        .filter((item) => !item.typing && item.id != null)
+        .map((item) => String(item.id));
       this.messages = this.messages.slice(0, messageIndex);
       this.cancelEditMessage();
       this.draft = content;
       this.persist();
       this.sendMessage();
+      if (removedIds.length) {
+        fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete-ids", ids: removedIds }),
+        }).catch(() => {});
+      }
     },
     async refreshSuggestions(provider = this.chatProvider, style = "") {
       const requestId = ++this.suggestionRequestId;
@@ -2833,7 +2845,8 @@ export const appMethods = {
       const backoff = this.autoCompressFailStreak > 0
         ? Math.min(120, this.autoCompressFailStreak * 15)
         : 0;
-      if (this.compressibleMessageCount < this.autoCompressThreshold + backoff) return;
+      // 到“阈值 + 保留条数”时才压缩：压缩掉前面的旧消息，保留最近几条原文保证连贯
+      if (this.compressibleMessageCount < this.autoCompressThreshold + 6 + backoff) return;
       void this.summarizeConversation(true);
     },
     async summarizeConversation(automatic = false) {

@@ -415,8 +415,8 @@ export const appTemplate = `
               placeholder="总结后会在这里保存当前场景、人物关系、重要事件、用户偏好和未完成剧情…"
             ></textarea>
             <div class="memory-compression-settings">
-              <label><input v-model="autoCompress" type="checkbox" /><span><b>自动压缩上下文</b><small>达到阈值后，在下一次发送前自动总结并清理旧消息</small></span></label>
-              <label class="memory-threshold">触发阈值 <b>{{ autoCompressThreshold }} 条</b><input v-model.number="autoCompressThreshold" type="range" min="20" max="120" step="10" /></label>
+              <label><input v-model="autoCompress" type="checkbox" /><span><b>自动压缩上下文</b><small>达到阈值后自动总结旧消息并保留最近几条原文</small></span></label>
+              <label class="memory-threshold">触发阈值 <b>{{ autoCompressThreshold }} 条</b><small>到 {{ autoCompressThreshold + 6 }} 条时压缩前 {{ autoCompressThreshold }} 条，保留最近 6 条</small><input v-model.number="autoCompressThreshold" type="range" min="20" max="120" step="10" /></label>
             </div>
             <div class="prompt-help">
               <span>{{ summaryUpdatedAt ? '最近总结：' + formatSummaryTime(summaryUpdatedAt) : (storySummary.trim() ? '已有手动保存的摘要' : '尚未生成剧情摘要') }}</span>

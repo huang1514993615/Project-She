@@ -3503,6 +3503,14 @@ async function handleHistory(body, method, url) {
     );
     return jsonResponse({ ok: true, removed, ...(await historyStatus(0)) });
   }
+  if (body.action === "delete-ids") {
+    const ids = new Set((Array.isArray(body.ids) ? body.ids : [])
+      .map((id) => String(id).trim())
+      .filter(Boolean));
+    if (!ids.size) return jsonResponse({ ok: true, removed: 0, ...(await historyStatus(0)) });
+    const removed = await deleteArchivedMessages((message) => ids.has(String(message.id)));
+    return jsonResponse({ ok: true, removed, ...(await historyStatus(0)) });
+  }
   return jsonResponse({ error: "不支持的历史记录操作" }, 400);
 }
 
